@@ -17,7 +17,7 @@
 3. **13장 "확인 필요" 항목은 추측으로 구현하지 않는다.** 공식 문서나 실제 실행으로 확인한 뒤 구현하고, 확인 결과를 문서에 반영한다. 특히 Claude Code hooks 스키마(R1)는 반드시 최신 공식 문서(`https://docs.claude.com/en/docs/claude-code/hooks`)로 확인한다.
 4. **사용자 전역 설정을 함부로 건드리지 않는다.** `~/.claude/settings.json`, `~/.tmux.conf`, `~/.zshrc` 등 앱 밖의 파일은 수정하지 않는다. 유일한 예외는 8.4의 훅 설치이며, 앱 UI에서 사용자가 명시적으로 동의했을 때만 백업 후 수행한다. 개발 중 테스트도 임시 HOME 또는 fixture 파일로 한다.
 5. TypeScript `strict: true`, **`any` 금지**, React는 Function Component만 사용한다.
-6. 사용자와의 대화·UI 문구는 한국어, 코드 식별자·커밋 메시지는 영어로 쓴다.
+6. 사용자와의 대화·UI 문구는 한국어, 코드 식별자·주석은 각각 영어·한국어로 쓴다. **커밋 메시지는 사용자 전역 규칙(`~/.claude/CLAUDE.md`)을 따라 `타입 : 한국어 설명` 형식으로 쓴다** (타입: feat, fix, chore, docs, refactor, test). 작업은 `main`이 아니라 새 브랜치에서 하고, 커밋 전에 사용자에게 묻는다.
 
 ---
 
@@ -658,3 +658,4 @@ type PtyOpenRequest = Pick<TerminalNodeData, 'id' | 'command'> & { cwd: string |
 | v0.1.7 | 2026-09-20 | 단계 4 R1 확인 완료: §8.2를 공식 문서 + 실제 stdin 덤프 기준으로 전면 개정(`PermissionRequest`·`StopFailure` 추가, 실측 필드명 표 추가, 문서와 다른 필드명 경고). D7 대안(`--settings`) 검토 결과 D7 유지 |
 | v0.1.8 | 2026-09-20 | 단계 4 구현 중 개정: §8.5에 mtime 규칙을 감시 이벤트에도 적용(FSEvents가 감시 직전 변경까지 전달). §10의 `status`·`hooks`·`app` 계약 구체화(`setKnownNodes`, 백업 경로 반환, `notify`/`setNotificationsEnabled`). §14.2에 훅 점검 격리 원칙. §4.2에 단계 4 파일 추가 |
 | v0.1.9 | 2026-09-20 | 단계 5 구현 중 개정: §6.3에 컨텍스트 손실 노드 재부착 금지·최근 포커스 관리 명시. §7.5에 `Cmd+C` 선택 조건·캡처 단계 처리·클립보드 경로 명시. §10에 `clipboard` API 추가. §4.2에 `canvas/zoomLevel.ts`·`nodes/NodeOverview.tsx`·`scripts/check-zoom.mjs` 추가 |
+| v0.1.10 | 2026-09-20 | §0.6 개정: 커밋 메시지를 영어에서 사용자 전역 규칙의 `타입 : 한국어 설명` 형식으로 바꾸고, 브랜치·커밋 승인 규칙을 명시. 이 프로젝트에 `AGENTS.md`가 없어 전역 규칙이 적용된다 |
