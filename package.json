@@ -19,6 +19,7 @@
     "verify:persistence": "node scripts/check-persistence.mjs",
     "verify:status": "node scripts/check-status.mjs",
     "verify:zoom": "node scripts/check-zoom.mjs",
+    "verify:polish": "node scripts/check-polish.mjs",
     "lint": "eslint --cache .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

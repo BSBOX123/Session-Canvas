@@ -52,6 +52,9 @@ const api: Api = {
     read: () => ipcRenderer.invoke(CHANNELS.clipboardRead),
     write: (text) => ipcRenderer.send(CHANNELS.clipboardWrite, text)
   },
+  git: {
+    branch: (cwd) => ipcRenderer.invoke(CHANNELS.gitBranch, cwd)
+  },
   dialog: {
     pickDirectory: () => ipcRenderer.invoke(CHANNELS.dialogPickDirectory)
   }

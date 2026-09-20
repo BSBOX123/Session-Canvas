@@ -4,7 +4,7 @@
 > 정본 명세는 `SPEC.md`.
 
 - 최종 갱신: 2026-09-20
-- 현재 단계: **단계 5 (줌 단계·성능) 완료.** 다음은 단계 6(다듬기·패키징).
+- 현재 단계: **단계 6 (다듬기·패키징) 완료. MVP 전 단계 종료.**
 
 ---
 
@@ -18,7 +18,7 @@
 | 3 tmux·영속성 | ✅ 완료 (2026-09-20) | TmuxService, buildArgs, tmux.conf, WorkspaceStore, 복구 흐름, 닫기 vs 종료 |
 | 4 상태 감지 | ✅ 완료 (2026-09-20) | 훅 스크립트, HookInstaller, StatusWatcher, 상태 배지, 알림, Dock 배지 |
 | 5 줌 단계·성능 | ✅ 완료 (2026-09-20) | semantic zoom, WebGL 개수 제한, 단축키 전체, 상태 색 미니맵 |
-| 6 다듬기·패키징 | ⬜ 미착수 | |
+| 6 다듬기·패키징 | ✅ 완료 (2026-09-20) | git 브랜치 표시, 색 라벨, 설정 화면, `.app` 빌드와 Finder 경로 확인 |
 
 ---
 
@@ -52,7 +52,14 @@
 - **줌 단계**(SPEC 7.3): 상세(≥0.75, 입력 가능) / 미리보기(0.4~0.75, 입력 막힘·클릭하면 줌인) / 개요(<0.4, 터미널을 아예 그리지 않고 큰 제목·설명·상태 카드).
 - **WebGL 개수 제한**(SPEC 6.3): 최근 포커스 상위 4개(`webglMax`)에만 WebGL, 나머지는 DOM. 컨텍스트를 잃으면 그 노드는 DOM으로 되돌리고 다시 붙이지 않는다.
 - **단축키 전체**(SPEC 7.5): `Cmd+N`/`0`/`1~9`/`J`/`Enter`/`W`/`C`/`V`/`=`/`-`. 미니맵은 상태 색으로 칠한다.
-- 점검: `verify:renderer` / `verify:terminal`(9) / `verify:canvas`(12) / `verify:persistence`(13) / `verify:status`(7) / `verify:zoom`(15).
+- 노드 헤더 둘째 줄에 `~/dev/project/... · 브랜치` (포커스된 노드는 30초마다 갱신), 색 라벨은 헤더 좌측 띠.
+- 설정 화면에서 폰트·글자 크기·WebGL 개수를 바꾸면 **살아 있는 터미널에 바로** 반영된다.
+- 세션이 사라진 노드에 `claudeSessionId`가 있으면 [이전 대화 이어서](`claude --resume <id>`)가 나온다.
+- 알림 조건이 SPEC 8.6대로 다 찼다: 창이 비활성 **이거나** 그 노드가 화면 밖/개요 단계일 때.
+- `npm run build:mac` → `dist/mac-arm64/Session Canvas.app` (서명 없음, SPEC 2.2).
+- 점검: `verify:renderer` / `verify:terminal`(9) / `verify:canvas`(12) / `verify:persistence`(13) / `verify:status`(7) / `verify:zoom`(15) / `verify:polish`(5).
+
+> ⚠️ **점검 스크립트는 한 번에 하나만 돌린다.** 전부 포트 9222를 쓴다. 앞선 앱이 남아 있으면 다음 점검이 **엉뚱한 앱을 측정하고** 조용히 이상한 결과를 낸다(실제로 겪었다). 돌리기 전에 `pkill -9 -f electron-vite` 로 정리할 것.
 
 ### 단계 0 완료 기준 체크리스트 (SPEC 12.1)
 
@@ -133,6 +140,15 @@
 - [x] `npm test`(121) / `lint` / `typecheck` / `prettier --check` 통과
 - [x] 단계 1·2 회귀 점검 통과
 
+### 단계 6 완료 기준 체크리스트 (SPEC 12.1)
+
+- [x] **패키징된 앱을 Finder에서 실행해도 tmux·claude를 찾는다 (SPEC 4.4)** — `open <앱>`(LaunchServices, Finder와 같은 경로)으로 띄워 확인. tmux 3.7c를 찾았고, 노드 안에서 `claude --version` → 2.1.278. 로그인 셸 PATH 해석이 패키징 앱에서 처음으로 진짜 시험대에 올라 통과했다
+- [x] 설치 안내 화면 동작 — `SHELL=/bin/sh PATH=<tmux 없는 경로>`로 띄워 확인. 앱이 죽지 않고 `brew install tmux` 안내만 띄운다
+- [x] git 브랜치 표시 / 색 라벨 / 설정 화면 — `verify:polish` 5/5
+- [x] 번들 구성 확인 — `Contents/Resources/tmux.conf`, `Resources/hooks/session-canvas-hook.sh`, asar 밖의 `pty.node`
+- [x] 프로덕션 빌드에 개발 점검 훅 없음 (`window.__sessionCanvas === undefined`)
+- [x] `npm test`(126) / `lint` / `typecheck` / `prettier --check` 통과, 단계 2·5 회귀 통과
+
 ---
 
 ## 3. 13장 R 항목 확인 결과
@@ -161,26 +177,36 @@
 
 ---
 
-## 5. 다음에 할 일 (단계 6 — 마지막)
+## 5. 남은 일
 
-SPEC 12.1 단계 6 — 다듬기와 패키징.
+SPEC 12.1의 단계 0~6이 모두 끝났다. MVP 범위(SPEC 2.1)는 다 구현했다.
 
-- git 브랜치 표시 (포커스 시 + 30초 주기), 노드 헤더에 `~/dev/lecturemate · main` 형태 (SPEC 7.1)
-- 색 라벨 (헤더 좌측 띠), 설정 화면에 폰트·글자 크기·`webglMax` 노출 (SPEC 9.1의 settings는 이미 저장된다)
-- `electron-builder`로 로컬 `.app` 빌드 (`npm run build:mac`)
-- 완료 기준: **패키징된 앱을 Finder에서 실행해도** tmux·claude를 찾는다(SPEC 4.4) · 설치 안내 화면 동작
+### 사용자가 직접 확인해야 하는 것
+- **R8 (재부팅 후 resume 흐름)** — 재부팅으로 tmux 서버가 사라진 뒤 앱을 켜면 노드가 "세션 없음"으로 뜨는지, [새로 시작]과 [이전 대화 이어서]가 동작하는지. [이전 대화 이어서]는 `claudeSessionId`가 있어야 보이고, 그 값은 상태 감지를 켜 둔 채 Claude Code를 쓴 적이 있어야 채워진다.
+- **상태 감지 실제 설치** — `~/.claude/settings.json` 병합은 사용자가 설정 화면에서 직접 켜야 한다. 자동 점검은 임시 HOME과 프로젝트 설정으로만 검증했다.
+- **패키징 앱 일상 사용** — Finder 실행·tmux·claude는 확인했지만, 하루 써 보는 것과는 다르다.
 
-시작 전 반드시 알아야 할 것:
-- **SPEC 4.4가 이 단계의 핵심이다.** 개발 모드는 터미널의 PATH를 물려받아 문제가 가려져 있다. `LoginEnv`(`$SHELL -ilc env`)는 만들어 뒀지만, **Finder에서 띄운 `.app`으로 확인한 적이 없다.** 여기서 처음 진짜로 시험대에 오른다.
-- `resources/`는 `extraResources`로 asar 밖에 복사하도록 `electron-builder.yml`에 넣어 뒀다(tmux에 `-f`로 넘기려면 실제 파일이어야 한다). **이 설정도 패키징해 봐야 검증된다.**
-- 훅 스크립트 경로도 마찬가지다 — `HookInstaller`가 `resourcePath('hooks/session-canvas-hook.sh')`에서 복사한다.
-- 자동 점검(`scripts/check-*.mjs`)은 전부 개발 모드용이다. 패키징 확인은 **사용자가 직접** `.app`을 Finder에서 실행해 봐야 한다.
+### 알려진 한계
+- 앱이 **서명·공증되지 않았다**(SPEC 2.2의 비범위). 다른 기기로 옮기면 Gatekeeper가 막는다.
+- WebGL 컨텍스트 손실 경로는 코드에 있으나 **실제로 손실을 유발해 확인하지는 못했다**(R6).
+- 렌더러 번들이 1.7MB다. 로컬 앱이라 당장 문제는 아니다.
 
-### 남은 미확인 항목
-- **R8(재부팅 후 resume)** — 사용자가 재부팅할 때 확인. tmux 서버가 사라진 뒤 앱을 켜면 노드가 "세션 없음"으로 뜨는지, [새로 시작]이 동작하는지. [이전 대화 이어서]는 아직 UI가 없다.
-- **SPEC 8.6의 알림 조건 절반** — "창 비활성 **또는 노드가 화면 밖/개요 단계**" 중 창 활성만 본다. 개요 단계가 이제 있으니 단계 6에서 마저 채울 수 있다.
+### MVP 이후 후보 (SPEC 12.2 — 착수 전 문서 개정 필요)
+커맨드 팔레트(`Cmd+K`), 노드 그룹, Codex 등 다른 CLI 상태 감지, 노드 간 출력 전달.
 
 ## 6. 삽질 기록
+
+### 6-1. 패키징 앱은 점검 스크립트가 안 통한다
+프로덕션 빌드에는 개발 훅(`window.__sessionCanvas`)이 없고, WebGL로 그린 터미널은 DOM 텍스트가 없어서 화면을 읽을 수가 없었다.
+→ **tmux 쪽에서 읽었다**: `tmux -L session-canvas capture-pane -p -t sc-<id>`. 앱 바깥에서 세션 내용을 그대로 볼 수 있다. 패키징 앱을 확인할 때 쓸 수 있는 방법이다.
+
+### 6-2. `open`으로 띄워야 Finder와 같은 조건이 된다
+터미널에서 `.app/Contents/MacOS/...`를 직접 실행하면 **내 셸의 PATH를 물려받아** SPEC 4.4 문제가 그대로 가려진다. `open <앱> --args ...`는 LaunchServices를 거치므로 Finder 더블클릭과 같다.
+`open`으로는 환경변수를 넘길 수 없어서, 점검용 격리는 `--args --user-data-dir=<임시>`까지만 된다(tmux 소켓은 실제 것을 쓴다 — 만든 세션은 직접 지웠다).
+
+### 6-3. 점검 두 개를 연달아 돌렸다가 엉뚱한 앱을 쟀다 ⭐
+`verify:canvas`와 `verify:zoom`을 이어서 돌렸더니 드래그·Esc·리사이즈가 줄줄이 실패했다. 각각 따로 돌리니 전부 통과. 앞 단계에서 띄운 앱이 포트 9222에 남아 있었고, 뒤 점검이 **그 앱에 붙어서** 잰 것이다.
+→ 점검은 한 번에 하나씩, 돌리기 전에 프로세스를 정리한다. 단계 3의 1-4와 같은 함정이 규모만 키워서 다시 나왔다. `portInUse` 가드는 "시작 시점"만 막아 준다.
 
 ### 5-1. "회귀"인 줄 알았던 것이 설계대로의 동작
 단계 5를 붙인 뒤 단계 2 점검에서 Esc·Shift+Tab이 "전달되지 않음"으로 떴다. 앱을 의심했는데, 그 점검이 앞선 줌 시험 때문에 **미리보기 단계**에 있었고 거기서는 터미널이 입력을 받지 않는 게 SPEC 7.3이다.

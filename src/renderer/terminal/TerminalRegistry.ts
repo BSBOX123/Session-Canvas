@@ -39,6 +39,19 @@ let webglMax = DEFAULT_SETTINGS.webglMax
 /** 컨텍스트를 잃은 노드는 다시 붙이지 않는다 — 앱이 멈추면 안 된다. */
 const webglBlocked = new Set<NodeId>()
 
+/** 설정의 폰트·크기를 살아 있는 터미널 전부에 적용한다 (SPEC 9.1). */
+export function applyFontSettings(fontFamily: string, fontSize: number): void {
+  for (const [id, entry] of entries) {
+    const changed =
+      entry.terminal.options.fontFamily !== fontFamily ||
+      entry.terminal.options.fontSize !== fontSize
+    if (!changed) continue
+    entry.terminal.options.fontFamily = fontFamily
+    entry.terminal.options.fontSize = fontSize
+    fitAndResize(id)
+  }
+}
+
 export function setWebglMax(max: number): void {
   webglMax = Math.max(0, Math.floor(max))
   applyWebglPolicy()

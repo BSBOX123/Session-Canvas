@@ -147,6 +147,47 @@ function SettingsPanel({ onClose }: { onClose(): void }): React.JSX.Element {
             />
             입력 대기·완료를 macOS 알림으로 알려주기
           </label>
+          <p className="settings-hint">
+            창이 비활성이거나, 그 노드가 화면 밖 또는 개요 단계일 때만 알립니다.
+          </p>
+        </section>
+
+        <section>
+          <h3>터미널</h3>
+
+          <label htmlFor="settings-font-family">폰트</label>
+          <input
+            id="settings-font-family"
+            value={settings.fontFamily}
+            onChange={(e) => setSettings({ fontFamily: e.target.value })}
+          />
+          <p className="settings-hint">
+            설치되지 않은 폰트는 뒤의 것으로 넘어갑니다. 기본값은 D2Coding → Menlo 순입니다.
+          </p>
+
+          <label htmlFor="settings-font-size">글자 크기 ({settings.fontSize}px)</label>
+          <input
+            id="settings-font-size"
+            type="range"
+            min={8}
+            max={24}
+            value={settings.fontSize}
+            onChange={(e) => setSettings({ fontSize: Number(e.target.value) })}
+          />
+
+          <label htmlFor="settings-webgl-max">WebGL 터미널 수 ({settings.webglMax}개)</label>
+          <input
+            id="settings-webgl-max"
+            type="range"
+            min={0}
+            max={8}
+            value={settings.webglMax}
+            onChange={(e) => setSettings({ webglMax: Number(e.target.value) })}
+          />
+          <p className="settings-hint">
+            최근 포커스한 이 개수만큼만 WebGL로 그립니다. 브라우저가 동시에 열 수 있는 WebGL
+            컨텍스트가 제한돼 있어, 높이면 오래된 것부터 끊길 수 있습니다.
+          </p>
         </section>
 
         <div className="dialog-actions">

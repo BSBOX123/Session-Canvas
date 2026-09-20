@@ -759,3 +759,92 @@ body {
 .terminal-node.zoom-overview .node-actions {
   display: none;
 }
+
+/* ── 헤더 둘째 줄 · 색 라벨 (SPEC 7.1) ────────────────── */
+
+.node-header {
+  position: relative;
+  align-items: stretch;
+}
+
+.node-header-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.node-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.node-color-stripe {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+}
+
+.node-colors {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
+
+.node-color-swatch {
+  width: 16px;
+  height: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 50%;
+  cursor: pointer;
+  padding: 0;
+}
+
+.node-color-swatch:hover {
+  border-color: var(--fg);
+}
+
+.node-location {
+  color: var(--fg-dim);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.node-location-branch {
+  color: #8fb86f;
+}
+
+/* 개요 단계에서는 경로 줄을 숨긴다 — 멀리서는 읽히지도 않는다. */
+.terminal-node.zoom-overview .node-location {
+  display: none;
+}
+
+.detached-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.detached-button.secondary {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  color: var(--fg);
+}
+
+.settings-hint {
+  font-size: 11px;
+  opacity: 0.7;
+  margin-top: -2px;
+}
+
+.dialog.settings input[type='range'] {
+  padding: 0;
+}

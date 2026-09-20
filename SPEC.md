@@ -132,7 +132,8 @@ session-canvas/
 │  ├─ check-canvas.mjs               # 캔버스·다중 노드 확인 (14.3)
 │  ├─ check-persistence.mjs          # tmux·영속성 확인 (14.3)
 │  ├─ check-status.mjs               # 상태 감지 확인 (14.3)
-│  └─ check-zoom.mjs                 # 줌 단계·성능 확인 (14.3)
+│  ├─ check-zoom.mjs                 # 줌 단계·성능 확인 (14.3)
+│  └─ check-polish.mjs               # 브랜치·색 라벨·설정 확인 (14.3)
 ├─ src/
 │  ├─ shared/
 │  │  ├─ types.ts                    # 9장 데이터 모델
@@ -150,6 +151,7 @@ session-canvas/
 │  │  ├─ workspace/WorkspaceStore.ts
 │  │  ├─ workspace/serialize.ts      # 순수 함수, 단위 테스트 대상
 │  │  ├─ notify/Notifier.ts
+│  │  ├─ git/GitService.ts           # 7.1 브랜치 표시
 │  │  ├─ resources.ts                # resources/ 실제 파일 경로 해석
 │  │  └─ ipc.ts
 │  ├─ preload/index.ts
@@ -161,6 +163,7 @@ session-canvas/
 │     ├─ nodes/NodeDescription.tsx
 │     ├─ nodes/NewNodeDialog.tsx     # 7.2
 │     ├─ nodes/DetachedSession.tsx   # 5.4 "세션 없음"
+│     ├─ nodes/NodeLocation.tsx      # 7.1 경로 · 브랜치
 │     ├─ canvas/OrphanSessions.tsx   # 5.4 "분리된 세션"
 │     ├─ nodes/statusPresentation.ts # 8.1 기호·문구·색
 │     ├─ settings/SettingsPanel.tsx  # 8.4 동의 UI
@@ -177,7 +180,7 @@ session-canvas/
 
 ### 4.3 실행 환경 요구사항
 - macOS 14+, Node.js 20+, **tmux 3.3+** (`brew install tmux`), Claude Code CLI 설치
-- 앱 시작 시 `tmux -V`로 버전을 확인하고, 없거나 낮으면 **설치 안내 화면**을 띄운다(앱이 죽으면 안 된다).
+- 앱 시작 시 `tmux -V`로 버전을 확인하고, 없거나 낮으면 **설치 안내 화면**을 띄운다(앱이 죽으면 안 된다). 단계 6에서 `SHELL=/bin/sh PATH=<tmux 없는 경로>`로 띄워 확인했다.
 
 ### 4.4 ⚠️ PATH 문제 (반드시 처리)
 Finder/Dock에서 실행한 macOS 앱은 **사용자 셸의 PATH를 물려받지 않는다.** `/opt/homebrew/bin`의 `tmux`, `claude`를 찾지 못한다.
@@ -186,6 +189,7 @@ Finder/Dock에서 실행한 macOS 앱은 **사용자 셸의 PATH를 물려받지
 - PTY에는 `TERM=xterm-256color`, `COLORTERM=truecolor`를 더해 준다(트루컬러).
 - 로케일이 UTF-8이 아니면 한글이 깨진다. 로그인 셸 환경에 `LANG`이 없으면 `ko_KR.UTF-8`을 기본값으로 넣는다.
 - 개발 모드(`npm run dev`)에서는 터미널의 PATH를 물려받아 문제가 가려지므로, 단계 6에서 **패키징된 앱으로 반드시 재확인**한다.
+- **확인 완료 (2026-09-20, 단계 6).** `open <앱>`(LaunchServices — Finder와 같은 경로)으로 띄운 패키징 앱이 tmux 3.7c를 찾고, 노드 안에서 `claude --version`도 정상 동작했다. 확인 방법: 패키징 앱을 `--remote-debugging-port`와 함께 `open`하고, 노드가 만든 tmux 세션을 `tmux -L session-canvas capture-pane -p -t sc-<id>`로 바깥에서 읽는다(프로덕션 빌드에는 개발 점검 훅이 없다).
 
 ---
 
@@ -237,6 +241,8 @@ set -g window-size latest
   ├─ 워크스페이스에 있고 세션도 있음   → 자동 재접속 (new-session -A)
   ├─ 워크스페이스에 있는데 세션이 없음 → 노드에 "세션 없음" 상태 표시 (재부팅 등)
   │      [새로 시작]  [이전 대화 이어서]  ← claudeSessionId가 있을 때만: `claude --resume <id>`
+  │      ([이전 대화 이어서]는 노드의 `command`를 `claude --resume <id>`로 바꾼 뒤 세션을 새로 연다.
+  │       `claudeSessionId`는 `SessionStart` 훅이 채우므로 상태 감지를 켜 둔 적이 있어야 나온다.)
   └─ 세션은 있는데 워크스페이스에 없음 → "분리된 세션" 목록에 표시, 클릭 시 노드로 복원
 ```
 
@@ -659,3 +665,4 @@ type PtyOpenRequest = Pick<TerminalNodeData, 'id' | 'command'> & { cwd: string |
 | v0.1.8 | 2026-09-20 | 단계 4 구현 중 개정: §8.5에 mtime 규칙을 감시 이벤트에도 적용(FSEvents가 감시 직전 변경까지 전달). §10의 `status`·`hooks`·`app` 계약 구체화(`setKnownNodes`, 백업 경로 반환, `notify`/`setNotificationsEnabled`). §14.2에 훅 점검 격리 원칙. §4.2에 단계 4 파일 추가 |
 | v0.1.9 | 2026-09-20 | 단계 5 구현 중 개정: §6.3에 컨텍스트 손실 노드 재부착 금지·최근 포커스 관리 명시. §7.5에 `Cmd+C` 선택 조건·캡처 단계 처리·클립보드 경로 명시. §10에 `clipboard` API 추가. §4.2에 `canvas/zoomLevel.ts`·`nodes/NodeOverview.tsx`·`scripts/check-zoom.mjs` 추가 |
 | v0.1.10 | 2026-09-20 | §0.6 개정: 커밋 메시지를 영어에서 사용자 전역 규칙의 `타입 : 한국어 설명` 형식으로 바꾸고, 브랜치·커밋 승인 규칙을 명시. 이 프로젝트에 `AGENTS.md`가 없어 전역 규칙이 적용된다 |
+| v0.1.11 | 2026-09-20 | 단계 6 구현 중 개정: §4.3·§4.4에 패키징 앱 확인 결과와 확인 방법 기록. §5.4에 [이전 대화 이어서] 구현 방식 명시. §4.2에 `main/git/GitService.ts`·`nodes/NodeLocation.tsx`·`scripts/check-polish.mjs` 추가 |

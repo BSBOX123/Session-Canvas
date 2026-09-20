@@ -2,7 +2,7 @@ import { memo, useCallback } from 'react'
 import { NodeResizer, useReactFlow, type NodeProps, type Node } from '@xyflow/react'
 import type { TerminalNodeData } from '@shared/types'
 import { MIN_NODE_SIZE, useWorkspace } from '../state/workspace'
-import { dispose, fitAndResize, focus } from '../terminal/TerminalRegistry'
+import { dispose, fitAndResize, focus, focusedNode } from '../terminal/TerminalRegistry'
 import XtermView from '../terminal/XtermView'
 import NodeHeader from './NodeHeader'
 import NodeDescription from './NodeDescription'
@@ -35,6 +35,16 @@ function TerminalNode({ data, selected }: NodeProps<TerminalFlowNode>): React.JS
       ZOOM_TO_NODE
     ).then(() => focus(node.id))
   }, [node.id, node.position.x, node.position.y, node.size.width, node.size.height, setCenter])
+
+  /**
+   * 이전 Claude Code 대화를 이어서 새 세션을 띄운다 (SPEC 5.4).
+   * `command`를 `claude --resume <id>`로 바꾸면 다음 `pty.open`이 그걸 쓴다.
+   */
+  const resumeSession = useCallback(() => {
+    if (node.claudeSessionId === null) return
+    updateNode(node.id, { command: `claude --resume ${node.claudeSessionId}` })
+    markSessionStarted(node.id)
+  }, [node.claudeSessionId, node.id, markSessionStarted, updateNode])
 
   /** 닫기(분리): PTY만 끊고 tmux 세션은 살려 둔다 (SPEC 5.3). */
   const detachNode = useCallback(() => {
@@ -77,6 +87,7 @@ function TerminalNode({ data, selected }: NodeProps<TerminalFlowNode>): React.JS
         sessionMissing={sessionMissing}
         state={status?.state ?? 'unknown'}
         unseen={status?.unseen ?? false}
+        focused={focusedNode() === node.id}
         onZoomToNode={zoomToNode}
         onDetach={detachNode}
         onKill={killNode}
@@ -92,7 +103,11 @@ function TerminalNode({ data, selected }: NodeProps<TerminalFlowNode>): React.JS
         <>
           <NodeDescription node={node} />
           {sessionMissing ? (
-            <DetachedSession node={node} onStart={() => markSessionStarted(node.id)} />
+            <DetachedSession
+              node={node}
+              onStart={() => markSessionStarted(node.id)}
+              onResume={resumeSession}
+            />
           ) : (
             <XtermView node={node} />
           )}
