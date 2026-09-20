@@ -20,4 +20,6 @@ npm test         # vitest
 npm run lint     # ESLint
 npm run typecheck
 npm run build    # out/ 에 빌드
+
+npm run verify:renderer   # 개발 앱을 띄워 렌더러를 자동 점검하고 종료 (SPEC 14.3)
 ```

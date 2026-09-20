@@ -31,5 +31,12 @@ export default defineConfig(
       '@typescript-eslint/ban-ts-comment': 'error'
     }
   },
+  {
+    // Plain JS tooling scripts: the TypeScript-only rules do not apply.
+    files: ['scripts/**/*.mjs', '*.mjs'],
+    rules: {
+      '@typescript-eslint/explicit-function-return-type': 'off'
+    }
+  },
   eslintConfigPrettier
 )

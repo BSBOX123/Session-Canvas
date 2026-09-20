@@ -13,6 +13,7 @@
     "build:unpack": "npm run build && electron-builder --dir",
     "test": "vitest run",
     "test:watch": "vitest",
+    "verify:renderer": "node scripts/inspect-renderer.mjs",
     "lint": "eslint --cache .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

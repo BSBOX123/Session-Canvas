@@ -27,6 +27,7 @@
 - `npm run dev` → Electron 창 1개(1280×800, 어두운 빈 화면)가 뜬다. 렌더러는 React 19 + StrictMode.
 - `npm run build` → `out/{main,preload,renderer}` 생성. `npm run build:mac`은 단계 6에서 검증 예정(미실행).
 - `npm test`(vitest), `npm run lint`(ESLint 9 flat), `npm run typecheck`(tsc, strict), `npm run format`(Prettier).
+- `npm run verify:renderer` → 개발 앱을 CDP 디버깅 포트와 함께 띄워 렌더러를 자동 점검하고 종료한다(SPEC 14.3). 옵션: `--attach`(이미 뜬 앱에 붙기), `--keep`(끄지 않기), `--port <n>`, `--verbose`(dev 로그 출력).
 - main 프로세스가 기동 시 node-pty를 import하고 `[session-canvas] node-pty loaded, spawn is function`을 출력한다(R5 상시 확인용).
 
 ### 단계 0 완료 기준 체크리스트 (SPEC 12.1)
@@ -36,6 +37,7 @@
 - [x] `npm run lint` 통과 — 오류 0
 - [x] node-pty import 시 오류 없음 — Electron 런타임에서 `spawn is function`
 - [x] (추가) `npm run typecheck` 통과, `npx prettier --check .` 통과
+- [x] (추가) `npm run verify:renderer` 8개 항목 전부 통과
 
 ---
 
@@ -86,7 +88,14 @@ SPEC 12.1 단계 1 — 창 하나에 xterm + node-pty(tmux 없이 직접 zsh).
 
 ### 0-4. 창이 실제로 떴는지 비대화형으로 확인하기
 osascript(System Events)는 손쉬운 사용 권한이 없어 막혔다(-25211). 시스템 설정은 건드리지 않았다.
-→ `electron-vite dev -- --remote-debugging-port=9222` 로 띄우고 CDP(`/json` + WebSocket `Runtime.evaluate`)로 `document.title`, `#root` 자식 수, `window.api` 존재, 콘솔/예외 로그를 확인했다. 이후 단계에서도 같은 방법을 쓸 수 있다.
+→ `electron-vite dev -- --remote-debugging-port=9222` 로 띄우고 CDP(`/json` + WebSocket `Runtime.evaluate`)로 확인했다. 이 방법을 `scripts/inspect-renderer.mjs` (`npm run verify:renderer`)로 정리해 두었다(SPEC 14.3).
+
+알아둘 점:
+- 의존성 0. Node 22+의 내장 `fetch`/`WebSocket`만 쓴다.
+- `Log.enable`/`Runtime.enable`은 **켜진 뒤의 이벤트만** 받는다. 그래서 켠 다음 `Page.reload`로 로드를 다시 돌려 초기 오류까지 잡는다.
+- React 마운트는 고정 대기 대신 `#root` 자식이 생길 때까지 250ms 간격으로 폴링한다(최대 10초).
+- 앱은 `detached: true`로 **자기 프로세스 그룹**에서 띄우고 `process.kill(-pid)`로 그룹째 정리한다. 이렇게 해야 electron-vite가 띄운 Electron 자식까지 같이 죽고, 사용자가 따로 띄운 `npm run dev`는 건드리지 않는다.
+- 이미 `npm run dev`가 떠 있으면 5173이 점유되어 스크립트 쪽 vite가 다른 포트를 쓴다. 동작에는 문제 없지만 창이 두 개 뜬다.
 
 ### 0-5. Prettier가 SPEC.md를 다시 포맷하려 함
 `.prettierignore`에 `SPEC.md`, `HANDOVER.md`, `README.md`를 넣어 정본 문서가 자동 포맷으로 훼손되지 않게 했다.

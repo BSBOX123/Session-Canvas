@@ -125,6 +125,8 @@ session-canvas/
 ├─ resources/
 │  ├─ tmux.conf                      # 5.2
 │  └─ hooks/session-canvas-hook.sh   # 8.3
+├─ scripts/
+│  └─ inspect-renderer.mjs           # 렌더러 스모크 확인 (14.3)
 ├─ src/
 │  ├─ shared/
 │  │  ├─ types.ts                    # 9장 데이터 모델
@@ -542,6 +544,10 @@ interface Api {
 ### 14.3 수동 인수 테스트
 12.1의 각 단계 완료 기준을 체크리스트로 `HANDOVER.md`에 기록하고 체크한다.
 
+기계로 확인할 수 있는 항목은 `npm run verify:renderer`(`scripts/inspect-renderer.mjs`)로 대신한다. 개발 앱을 Chrome DevTools Protocol 원격 디버깅 포트와 함께 띄워 렌더러에 직접 질의하고(창·React 마운트·`window.api`·Node 격리·콘솔 오류·node-pty 로드) 확인 후 종료한다. macOS 손쉬운 사용/화면 기록 권한이 필요 없고, 스크린샷과 달리 렌더 성공 여부를 판정할 수 있다.
+
+> ⚠️ 원격 디버깅 포트는 이 확인 중에만 열고(127.0.0.1 바인딩) 바로 닫는다. **`npm run dev`에는 절대 넣지 않는다** — 그 포트에 접근할 수 있는 누구나 렌더러에서 임의 JS를 실행할 수 있다.
+
 ---
 
 ## 15. 변경 이력
@@ -549,3 +555,4 @@ interface Api {
 |---|---|---|
 | v0.1 | 2026-09-20 | 초안. Electron + React Flow + xterm.js + node-pty + tmux 구조 확정, hooks 기반 상태 감지 설계, 단계 0~6 정의 |
 | v0.1.1 | 2026-09-20 | 단계 0 진행 중 수정: §0.1의 "14장 변경 이력" → "15장 변경 이력"(14장은 테스트, 변경 이력은 15장). §4.2에 없지만 골격에 필요한 파일(`src/renderer/index.html`, `src/renderer/main.tsx`, `src/renderer/index.css`, `vitest.config.ts`, `electron-builder.yml`, `eslint.config.mjs`, `build/`)을 추가. 렌더러 소스는 electron-vite 템플릿의 `src/renderer/src/` 대신 §4.2대로 `src/renderer/` 바로 아래에 둔다 |
+| v0.1.2 | 2026-09-20 | §4.2에 `scripts/inspect-renderer.mjs` 추가, §14.3에 CDP 기반 렌더러 스모크 확인 절차와 원격 디버깅 포트 주의사항 명시 |
