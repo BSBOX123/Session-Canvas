@@ -5,9 +5,12 @@ import { statSync } from 'node:fs'
 import { isAbsolute } from 'node:path'
 import { BrowserWindow, dialog, ipcMain, type IpcMainInvokeEvent } from 'electron'
 import { CHANNELS, type PtyOpenRequest } from '../shared/ipc'
-import { MAX_COMMAND_LENGTH, NODE_ID_PATTERN, type NodeId } from '../shared/types'
+import { MAX_COMMAND_LENGTH, NODE_ID_PATTERN, type NodeId, type Workspace } from '../shared/types'
 import type { OpenDialogOptions } from 'electron'
 import type { PtyManager } from './pty/PtyManager'
+import type { TmuxService } from './tmux/TmuxService'
+import type { WorkspaceStore } from './workspace/WorkspaceStore'
+import { parseWorkspace } from './workspace/serialize'
 
 /** cols/rows의 상한. 터무니없는 값으로 PTY를 흔들지 못하게 한다. */
 const MAX_DIMENSION = 1000
@@ -53,7 +56,14 @@ function assertOpenRequest(value: unknown): PtyOpenRequest {
   return { id, cwd, command }
 }
 
-export function registerIpcHandlers(pty: PtyManager, getWindow: () => BrowserWindow | null): void {
+export interface IpcDeps {
+  pty: PtyManager
+  tmux: TmuxService
+  store: WorkspaceStore
+  getWindow(): BrowserWindow | null
+}
+
+export function registerIpcHandlers({ pty, tmux, store, getWindow }: IpcDeps): void {
   ipcMain.handle(
     CHANNELS.ptyOpen,
     (_event: IpcMainInvokeEvent, req: unknown, cols: unknown, rows: unknown) => {
@@ -74,8 +84,33 @@ export function registerIpcHandlers(pty: PtyManager, getWindow: () => BrowserWin
     pty.detach(assertNodeId(id))
   })
 
-  ipcMain.handle(CHANNELS.ptyKill, (_event, id: unknown) => {
-    pty.kill(assertNodeId(id))
+  // 세션 종료 (SPEC 5.3): tmux 세션을 죽이고 PTY도 정리한다.
+  ipcMain.handle(CHANNELS.ptyKill, async (_event, id: unknown) => {
+    const nodeId = assertNodeId(id)
+    await tmux.killSession(nodeId)
+    pty.detach(nodeId)
+  })
+
+  ipcMain.handle(CHANNELS.workspaceLoad, () => store.load())
+
+  ipcMain.on(CHANNELS.workspaceSave, (_event, raw: unknown) => {
+    // renderer가 보낸 값도 믿지 않는다 (SPEC 11). 파서를 그대로 재사용한다.
+    const parsed = parseWorkspace(JSON.stringify(raw))
+    if (parsed.status !== 'ok') {
+      console.warn('[session-canvas] 저장 요청이 형식에 맞지 않아 무시합니다:', parsed.status)
+      return
+    }
+    store.save(parsed.workspace satisfies Workspace)
+  })
+
+  ipcMain.handle(CHANNELS.tmuxCheck, () => tmux.check())
+
+  ipcMain.handle(CHANNELS.tmuxExists, (_event, id: unknown) => tmux.hasSession(assertNodeId(id)))
+
+  ipcMain.handle(CHANNELS.tmuxListOrphans, async (_event, known: unknown) => {
+    const knownIds = new Set(Array.isArray(known) ? known.filter((v) => typeof v === 'string') : [])
+    const sessions = await tmux.listSessions()
+    return sessions.filter((session) => !knownIds.has(session.id))
   })
 
   ipcMain.handle(CHANNELS.dialogPickDirectory, async () => {

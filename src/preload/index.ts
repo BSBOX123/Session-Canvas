@@ -24,6 +24,15 @@ const api: Api = {
     onData: (cb) => subscribe<[NodeId, string]>(CHANNELS.ptyData, cb),
     onExit: (cb) => subscribe<[NodeId, number]>(CHANNELS.ptyExit, cb)
   },
+  workspace: {
+    load: () => ipcRenderer.invoke(CHANNELS.workspaceLoad),
+    save: (workspace) => ipcRenderer.send(CHANNELS.workspaceSave, workspace)
+  },
+  tmux: {
+    check: () => ipcRenderer.invoke(CHANNELS.tmuxCheck),
+    listOrphans: (known) => ipcRenderer.invoke(CHANNELS.tmuxListOrphans, known),
+    exists: (id) => ipcRenderer.invoke(CHANNELS.tmuxExists, id)
+  },
   dialog: {
     pickDirectory: () => ipcRenderer.invoke(CHANNELS.dialogPickDirectory)
   }

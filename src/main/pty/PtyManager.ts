@@ -1,14 +1,16 @@
 /**
  * 노드별 node-pty 생성·입출력·리사이즈 (SPEC 4.1).
  *
- * 단계 1에서는 tmux 없이 로그인 셸을 직접 띄운다. 단계 3에서 spawn 대상이
- * `tmux new-session -A ...`로 바뀌고 인자 조립은 `tmux/buildArgs.ts`가 맡는다.
+ * PTY는 tmux **클라이언트**를 띄운다 (`tmux new-session -A`). 그래서 PTY를
+ * 죽여도 세션은 tmux 서버 안에 살아남는다 (SPEC 5.1/5.3). 인자 조립은
+ * `tmux/buildArgs.ts`가 맡는다.
  */
 import { spawn, type IPty } from 'node-pty'
 import { homedir } from 'node:os'
 import type { NodeId } from '../../shared/types'
 import type { PtyOpenRequest } from '../../shared/ipc'
 import { loginShell } from '../env/loginEnv'
+import { buildNewSessionArgs, type TmuxContext } from '../tmux/buildArgs'
 
 /** SPEC 10: PTY 출력은 노드별로 약 8ms 단위로 묶어 보낸다. */
 const FLUSH_INTERVAL_MS = 8
@@ -29,6 +31,7 @@ export class PtyManager {
 
   constructor(
     private readonly env: NodeJS.ProcessEnv,
+    private readonly tmux: TmuxContext,
     private readonly handlers: PtyManagerHandlers
   ) {}
 
@@ -39,9 +42,14 @@ export class PtyManager {
 
     const shell = loginShell(this.env)
     const cwd = req.cwd ?? homedir()
-    const args = req.command === null ? ['-l'] : this.launchArgs(shell, req.command)
+    const args = buildNewSessionArgs(this.tmux, {
+      id: req.id,
+      cwd,
+      command: req.command,
+      shell
+    })
 
-    const pty = spawn(shell, args, {
+    const pty = spawn('tmux', args, {
       name: 'xterm-256color',
       cols,
       rows,
@@ -85,7 +93,10 @@ export class PtyManager {
     }
   }
 
-  /** PTY만 정리한다. 단계 3부터는 tmux 세션이 살아남는다 (SPEC 5.3). */
+  /**
+   * PTY(= tmux 클라이언트)만 정리한다. tmux 세션과 그 안의 프로세스는
+   * 그대로 살아 있다 (SPEC 5.3, 노드 닫기의 기본 동작).
+   */
   detach(id: NodeId): void {
     const session = this.sessions.get(id)
     if (!session) return
@@ -97,22 +108,8 @@ export class PtyManager {
     }
   }
 
-  /**
-   * 세션을 완전히 끝낸다. 단계 1에서는 tmux가 없어 detach와 같다.
-   * 단계 3에서 `tmux kill-session`이 앞에 붙는다.
-   */
-  kill(id: NodeId): void {
-    this.detach(id)
-  }
-
   detachAll(): void {
     for (const id of [...this.sessions.keys()]) this.detach(id)
-  }
-
-  private launchArgs(shell: string, command: string): string[] {
-    // 명령이 끝나도 셸이 남아야 한다 (SPEC 5.3). 따옴표 이스케이프를 포함한
-    // 정식 조립과 단위 테스트는 단계 3의 `tmux/buildArgs.ts`에서 한다.
-    return ['-l', '-c', `${command}; exec ${shell} -l`]
   }
 
   private push(id: NodeId, session: Session, data: string): void {

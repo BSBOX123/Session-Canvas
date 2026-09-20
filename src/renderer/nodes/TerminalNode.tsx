@@ -6,6 +6,7 @@ import { dispose, fitAndResize, focus } from '../terminal/TerminalRegistry'
 import XtermView from '../terminal/XtermView'
 import NodeHeader from './NodeHeader'
 import NodeDescription from './NodeDescription'
+import DetachedSession from './DetachedSession'
 
 export type TerminalFlowNode = Node<{ node: TerminalNodeData }, 'terminal'>
 
@@ -17,6 +18,8 @@ function TerminalNode({ data, selected }: NodeProps<TerminalFlowNode>): React.JS
   const { node } = data
   const removeNode = useWorkspace((s) => s.removeNode)
   const updateNode = useWorkspace((s) => s.updateNode)
+  const sessionMissing = useWorkspace((s) => s.missingSessions.has(node.id))
+  const markSessionStarted = useWorkspace((s) => s.markSessionStarted)
   const { setCenter } = useReactFlow()
 
   const zoomToNode = useCallback(() => {
@@ -27,8 +30,15 @@ function TerminalNode({ data, selected }: NodeProps<TerminalFlowNode>): React.JS
     }).then(() => focus(node.id))
   }, [node.id, node.position.x, node.position.y, node.size.width, node.size.height, setCenter])
 
-  const close = useCallback(() => {
-    dispose(node.id)
+  /** 닫기(분리): PTY만 끊고 tmux 세션은 살려 둔다 (SPEC 5.3). */
+  const detachNode = useCallback(() => {
+    dispose(node.id, 'detach')
+    removeNode(node.id)
+  }, [node.id, removeNode])
+
+  /** 세션 종료: tmux 세션까지 끝낸다. 확인을 거친 뒤에만 (SPEC 5.3). */
+  const killNode = useCallback(() => {
+    dispose(node.id, 'kill')
     removeNode(node.id)
   }, [node.id, removeNode])
 
@@ -44,9 +54,19 @@ function TerminalNode({ data, selected }: NodeProps<TerminalFlowNode>): React.JS
         // 리사이즈가 끝나면 fit → pty.resize (SPEC 7.1).
         onResizeEnd={() => fitAndResize(node.id)}
       />
-      <NodeHeader node={node} onZoomToNode={zoomToNode} onClose={close} />
+      <NodeHeader
+        node={node}
+        sessionMissing={sessionMissing}
+        onZoomToNode={zoomToNode}
+        onDetach={detachNode}
+        onKill={killNode}
+      />
       <NodeDescription node={node} />
-      <XtermView node={node} />
+      {sessionMissing ? (
+        <DetachedSession node={node} onStart={() => markSessionStarted(node.id)} />
+      ) : (
+        <XtermView node={node} />
+      )}
     </div>
   )
 }

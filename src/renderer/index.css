@@ -325,3 +325,184 @@ body {
   background: transparent;
   color: var(--fg-dim);
 }
+
+/* ── 시작 화면 ────────────────────────────────────────── */
+
+.app.boot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg-dim);
+}
+
+.boot-panel {
+  max-width: 460px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 24px 28px;
+}
+
+.boot-panel h1 {
+  font-size: 16px;
+  margin: 0 0 10px;
+  color: var(--fg);
+}
+
+.boot-panel p {
+  line-height: 1.6;
+  margin: 0 0 12px;
+}
+
+.boot-panel pre {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  color: var(--fg);
+  font-family: 'D2Coding', Menlo, monospace;
+}
+
+.boot-hint {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+/* ── 세션 없음 패널 ───────────────────────────────────── */
+
+.detached-session {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 16px;
+  background: var(--bg);
+  text-align: center;
+  color: var(--fg-dim);
+}
+
+.detached-title {
+  margin: 0;
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.detached-body {
+  margin: 0;
+  line-height: 1.6;
+  font-size: 12px;
+}
+
+.detached-body code {
+  background: var(--panel-2);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+.detached-button {
+  background: var(--accent);
+  border: none;
+  border-radius: 5px;
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  padding: 6px 14px;
+}
+
+.node-badge.detached {
+  color: var(--fg-dim);
+  opacity: 0.6;
+}
+
+/* ── 분리된 세션 목록 · 안내 ──────────────────────────── */
+
+.orphan-panel {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 220px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+  z-index: 20;
+}
+
+.orphan-title {
+  margin: 0 0 6px;
+  font-size: 12px;
+  color: var(--fg-dim);
+}
+
+.orphan-panel ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.orphan-panel button {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: var(--fg);
+  cursor: pointer;
+  font: inherit;
+  padding: 5px 7px;
+  text-align: left;
+}
+
+.orphan-panel button:hover {
+  background: var(--panel-2);
+  border-color: var(--border);
+}
+
+.orphan-name {
+  font-family: 'D2Coding', Menlo, monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.orphan-cwd {
+  color: var(--fg-dim);
+  flex: none;
+  font-size: 12px;
+}
+
+.notice {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: 620px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  z-index: 20;
+}
+
+.notice button {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--fg-dim);
+  cursor: pointer;
+  font: inherit;
+  padding: 3px 8px;
+  flex: none;
+}

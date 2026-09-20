@@ -16,6 +16,21 @@ export const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..'
 
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
+/** 단일 CDP 명령이 이보다 오래 걸리면 뭔가 잘못된 것이다. */
+const CDP_TIMEOUT_MS = 30_000
+
+/**
+ * 점검 전체가 이 시간을 넘으면 실패로 끝낸다. 멈춘 채 방치되는 것보다
+ * 실패가 낫다.
+ */
+export function watchdog(seconds, label) {
+  const timer = setTimeout(() => {
+    console.error(`\n❌ ${label}: ${seconds}초 안에 끝나지 않아 중단합니다.\n`)
+    process.exit(1)
+  }, seconds * 1000)
+  return () => clearTimeout(timer)
+}
+
 export function parseArgs(argv) {
   const portIndex = argv.indexOf('--port')
   return {
@@ -38,17 +53,23 @@ export async function portInUse(port) {
   }
 }
 
-export function startDevApp({ port, verbose }) {
+/**
+ * `env`와 `electronArgs`로 앱을 격리해 띄울 수 있다 — 점검이 실제 워크스페이스
+ * 파일이나 tmux 세션을 건드리지 않게 한다 (SPEC 14.2).
+ */
+export function startDevApp({ port, verbose, env = {}, electronArgs = [] }) {
   const child = spawn(
     process.execPath,
     [
       resolve(repoRoot, 'node_modules/electron-vite/bin/electron-vite.js'),
       'dev',
       '--',
-      `--remote-debugging-port=${port}`
+      `--remote-debugging-port=${port}`,
+      ...electronArgs
     ],
     {
       cwd: repoRoot,
+      env: { ...process.env, ...env },
       // 자기 프로세스 그룹에서 띄운다. 그래야 electron-vite가 만든 Electron
       // 자식까지 그룹째 정리되고, 사용자가 따로 띄운 dev는 건드리지 않는다.
       detached: true,
@@ -113,6 +134,17 @@ export async function connect(page) {
     events.push(message)
   }
 
+  // 앱이 죽으면 소켓이 닫힌다. 여기서 깨우지 않으면 대기 중인 요청이 영원히
+  // 안 끝나고 점검 전체가 멈춘다 (실제로 멈췄다).
+  let closed = false
+  ws.onclose = () => {
+    closed = true
+    for (const [, entry] of pending) {
+      entry.reject(new Error('DevTools 연결이 끊겼습니다 (앱이 종료됐을 수 있습니다)'))
+    }
+    pending.clear()
+  }
+
   await new Promise((res, rej) => {
     ws.onopen = res
     ws.onerror = () => rej(new Error('DevTools 웹소켓 연결에 실패했습니다'))
@@ -120,8 +152,25 @@ export async function connect(page) {
 
   const send = (method, params = {}) =>
     new Promise((resolve, reject) => {
+      if (closed) {
+        reject(new Error('DevTools 연결이 이미 닫혔습니다'))
+        return
+      }
       const id = ++nextId
-      pending.set(id, { resolve, reject })
+      const timer = setTimeout(() => {
+        pending.delete(id)
+        reject(new Error(`CDP 응답 없음: ${method}`))
+      }, CDP_TIMEOUT_MS)
+      pending.set(id, {
+        resolve: (value) => {
+          clearTimeout(timer)
+          resolve(value)
+        },
+        reject: (error) => {
+          clearTimeout(timer)
+          reject(error)
+        }
+      })
       ws.send(JSON.stringify({ id, method, params }))
     })
 

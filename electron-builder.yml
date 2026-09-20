@@ -12,8 +12,13 @@ files:
   - '!{.env,.env.*,.npmrc,package-lock.json}'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
 asarUnpack:
-  - resources/**
   - node_modules/node-pty/**
+# tmux에 `-f`로 넘겨야 하므로 asar 밖의 실제 파일이어야 한다.
+extraResources:
+  - from: resources
+    to: .
+    filter:
+      - '**/*'
 mac:
   entitlementsInherit: build/entitlements.mac.plist
   # SPEC 2.2: local builds only, no signing or notarization.

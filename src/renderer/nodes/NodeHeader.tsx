@@ -5,15 +5,25 @@ import { displayTitle } from './displayTitle'
 
 interface NodeHeaderProps {
   node: TerminalNodeData
+  sessionMissing: boolean
   onZoomToNode(): void
-  onClose(): void
+  /** 닫기(분리) — tmux 세션은 살아남는다 (SPEC 5.3). */
+  onDetach(): void
+  /** 세션 종료 — `tmux kill-session`. 확인을 거친 뒤에만. */
+  onKill(): void
 }
 
 /**
  * 노드 헤더 (SPEC 7.1). 캔버스 드래그 핸들이기도 하다.
  * 상태 배지는 단계 4, git 브랜치·색 라벨은 단계 6.
  */
-function NodeHeader({ node, onZoomToNode, onClose }: NodeHeaderProps): React.JSX.Element {
+function NodeHeader({
+  node,
+  sessionMissing,
+  onZoomToNode,
+  onDetach,
+  onKill
+}: NodeHeaderProps): React.JSX.Element {
   const updateNode = useWorkspace((s) => s.updateNode)
   const [editingTitle, setEditingTitle] = useState(false)
   const [confirmingClose, setConfirmingClose] = useState(false)
@@ -26,8 +36,11 @@ function NodeHeader({ node, onZoomToNode, onClose }: NodeHeaderProps): React.JSX
   return (
     <div className="node-header drag-handle">
       <div className="node-header-main">
-        <span className="node-badge" title="상태 감지는 단계 4에서 붙는다">
-          ○
+        <span
+          className={`node-badge${sessionMissing ? ' detached' : ''}`}
+          title={sessionMissing ? '세션 없음' : '대기 (상태 감지는 단계 4)'}
+        >
+          {sessionMissing ? '–' : '○'}
         </span>
         {editingTitle ? (
           <input
@@ -57,10 +70,23 @@ function NodeHeader({ node, onZoomToNode, onClose }: NodeHeaderProps): React.JSX
       </div>
 
       {confirmingClose ? (
+        // 분리가 기본이고, 세션을 정말 끝내는 것은 따로 고르게 한다 (SPEC 5.3).
         <div className="node-confirm nodrag">
-          <span>세션을 끝낼까요?</span>
-          <button type="button" className="node-button danger" onClick={onClose}>
-            닫기
+          <button
+            type="button"
+            className="node-button"
+            onClick={onDetach}
+            title="tmux 세션은 살아 있습니다"
+          >
+            닫기(분리)
+          </button>
+          <button
+            type="button"
+            className="node-button danger"
+            onClick={onKill}
+            title="tmux 세션까지 끝냅니다"
+          >
+            세션 종료
           </button>
           <button type="button" className="node-button" onClick={() => setConfirmingClose(false)}>
             취소

@@ -4,7 +4,7 @@
 > 정본 명세는 `SPEC.md`.
 
 - 최종 갱신: 2026-09-20
-- 현재 단계: **단계 2 (캔버스·다중 노드) 완료.** 다음은 단계 3(tmux·영속성).
+- 현재 단계: **단계 3 (tmux·영속성) 완료.** 다음은 단계 4(상태 감지).
 
 ---
 
@@ -15,7 +15,7 @@
 | 0 골격 | ✅ 완료 (2026-09-20) | electron-vite(react-ts), TS strict, ESLint+Prettier, vitest, node-pty + Electron 재빌드 |
 | 1 단일 터미널 | ✅ 완료 (2026-09-20) | xterm + node-pty(직접 zsh), LoginEnv, fit·unicode11·clipboard·web-links |
 | 2 캔버스·다중 노드 | ✅ 완료 (2026-09-20) | React Flow, TerminalNode, TerminalRegistry, 생성 대화상자, zustand |
-| 3 tmux·영속성 | ⬜ 미착수 | |
+| 3 tmux·영속성 | ✅ 완료 (2026-09-20) | TmuxService, buildArgs, tmux.conf, WorkspaceStore, 복구 흐름, 닫기 vs 종료 |
 | 4 상태 감지 | ⬜ 미착수 | |
 | 5 줌 단계·성능 | ⬜ 미착수 | |
 | 6 다듬기·패키징 | ⬜ 미착수 | |
@@ -39,7 +39,13 @@
 - `Cmd+N` 또는 빈 캔버스 더블클릭 → 생성 대화상자(폴더 선택·제목·명령).
 - 두 손가락 스크롤 = 팬, 핀치 = 줌 (SPEC 7.4). 미니맵·컨트롤 표시.
 - 노드 닫기는 헤더 `×` → 인라인 확인. **네이티브 `confirm`은 쓰지 않는다**(렌더러가 멈춰 CDP 점검도 막힌다).
-- 점검: `npm run verify:renderer` / `verify:terminal`(9항목) / `verify:canvas`(12항목).
+- **모든 PTY가 tmux 클라이언트다.** 노드 1개 = `sc-<nodeId>` 세션 1개, 전용 소켓 `-L session-canvas`로 사용자 기본 tmux와 격리.
+- 앱을 강제 종료해도 세션이 살아 있고, 다시 켜면 자동 재접속한다.
+- `workspace.json`(userData)에 레이아웃·제목·설명 저장. 500ms 디바운스, 임시 파일 + rename, `.bak` 1개 유지, 손상 시 백업 복구.
+- 시작 시 tmux 확인 → 없으면 설치 안내 화면(앱이 죽지 않는다).
+- 세션이 사라진 노드는 "세션 없음" 패널 + [새로 시작], 워크스페이스에 없는 세션은 우상단 "분리된 세션" 목록에서 복원.
+- 헤더 `×` → [닫기(분리)] / [세션 종료] / [취소]. 분리는 tmux 세션을 살려 둔다.
+- 점검: `npm run verify:renderer` / `verify:terminal`(9항목) / `verify:canvas`(12항목) / `verify:persistence`(13항목).
 
 ### 단계 0 완료 기준 체크리스트 (SPEC 12.1)
 
@@ -79,6 +85,20 @@
 - [x] 노드 닫기 → 노드·터미널·PTY 정리
 - [x] `npm test`(21) / `lint` / `typecheck` / `prettier --check` 통과
 
+### 단계 3 완료 기준 체크리스트 (SPEC 12.1)
+
+`npm run verify:persistence`로 자동 확인:
+
+- [x] **앱을 강제 종료(SIGKILL)해도 세션이 그대로** — 재시작 후 이전 화면까지 복원
+- [x] 레이아웃·제목·설명 복원
+- [x] tmux 상태줄 안 보임 — `status off`
+- [x] Ctrl+B 그대로 전달 — `prefix None`, `cat -v`가 `^B` 수신
+- [x] 휠 스크롤 → tmux 스크롤백 — `pane_in_mode=1`
+- [x] 사용자 기본 tmux 서버에 영향 없음 — 기본 소켓에 `sc-*` 없음
+- [x] 닫기(분리) → 노드만 사라지고 세션 유지 → "분리된 세션" 목록에 나타남
+- [x] 세션 종료 → tmux 세션 제거
+- [x] `npm test`(52) / `lint` / `typecheck` / `prettier --check` 통과
+
 ---
 
 ## 3. 13장 R 항목 확인 결과
@@ -87,7 +107,9 @@
 |---|---|
 | **R5** node-pty Electron 재빌드 | ✅ **확인됨.** `package.json`의 `postinstall: electron-builder install-app-deps`가 `@electron/rebuild`를 호출해 node-pty 1.1.0을 Electron 39.8.10 / arm64로 빌드한다(`node_modules/node-pty/build/Release/pty.node`). Electron 런타임에서 import 성공. **주의: 이 바이너리는 Electron ABI이므로 순수 Node(= vitest)에서는 import할 수 없다.** 그래서 node-pty 검증은 단위 테스트가 아니라 main 프로세스 기동 로그로 한다. `npm install`/Electron 버전 변경 후에는 postinstall이 자동으로 다시 빌드한다. |
 | **R3** 한글 IME 조합 입력 | ✅ **확인됨 (2026-09-20, 사용자 수동 테스트).** macOS 두벌식 IME로 직접 타이핑해 전부 정상: 조합 중 글자가 커서 자리에서 바뀜 · 확정 시 중복·누락 없음 · 조합 중 백스페이스가 자모 단위 · 한글 뒤 영문이 겹치지 않음 · 커서 이동 후 삽입 정상 · `echo 한글테스트가나다` 왕복 일치. **tmux 없이 zsh를 직접 띄운 조건**에서의 결과다. 단계 3에서 tmux를 끼우면 다시 확인해야 한다(R2와 함께). 자동 점검(`verify:terminal`)의 CDP 조합 시뮬레이션은 회귀 감지용으로 남겨 둔다. |
-| R1, R2, R4, R6, R7, R8 | 미확인 (각각 단계 3/4/5에서 확인 예정) |
+| **R2** tmux 안 Claude Code의 Shift+Enter | ✅ **확인하고 고쳤다 (단계 3).** `cat -v`로 재보니 **xterm이 Shift+Enter를 그냥 Enter와 똑같이 보낸다.** tmux의 `extended-keys on`만으로는 소용이 없다 — 터미널이 애초에 구별해 주지 않기 때문이다. `attachCustomKeyEventHandler`에서 가로채 `ESC CR`(Option+Enter와 같은 바이트)로 보내도록 했고, 다시 재보니 `^[`가 도착한다. iTerm에서 `claude`의 `/terminal-setup`이 하는 것과 같은 방식. **Claude Code 프롬프트에서 실제로 줄바꿈이 되는지는 사용자 확인 필요.** |
+| **R4** tmux 안 Claude Code 렌더링 | ⚠️ **부분 확인.** tmux를 거쳐도 한글 출력·전각 폭·트루컬러·리사이즈·vim(대체 화면)이 모두 정상이고 `claude --version`도 뜬다(`verify:terminal` 9/9). **깜빡임·스피너·색 같은 실제 렌더링 품질은 iTerm 직접 실행과 눈으로 비교해야 한다.** |
+| R1, R6, R7, R8 | 미확인 (각각 단계 4/5에서 확인 예정) |
 
 ---
 
@@ -100,23 +122,52 @@
 
 ---
 
-## 5. 다음에 할 일 (단계 3)
+## 5. 다음에 할 일 (단계 4)
 
-SPEC 12.1 단계 3 — tmux와 영속성. **`brew install tmux` 가 선행 조건이다** (아직 미설치).
+SPEC 12.1 단계 4 — Claude Code hooks 기반 상태 감지. **SPEC 8장 전체.**
 
-- `resources/tmux.conf` (SPEC 5.2) — 옵션이 실제 tmux 버전에서 오류 없이 로드되는지 먼저 확인
-- `src/main/tmux/buildArgs.ts` (순수 함수, **단위 테스트 필수** — SPEC 14.1) + `TmuxService.ts`
-- `PtyManager`가 셸 대신 `tmux new-session -A -s sc-<id> ...`를 띄우도록 교체
-- `src/main/workspace/WorkspaceStore.ts` — `workspace.json` 저장/로드, 500ms 디바운스, 원자적 rename, `.bak` (SPEC 9.2)
-- SPEC 5.4 복구 흐름, 분리된 세션 목록, 닫기(분리) vs 종료(확인 대화상자)
-- 완료 기준: **앱을 강제 종료 후 재실행해도 세션이 그대로** · 레이아웃·제목·설명 복원 · tmux 상태줄 안 보임 · Ctrl+B 그대로 전달 · 휠 스크롤 · 사용자 기본 tmux 서버에 영향 없음
+- **가장 먼저 R1을 확인한다** (SPEC 0.3, 13장): 훅 이벤트 이름·stdin JSON 필드·matcher 문법·`--settings` 플래그 동작을 공식 문서(`https://docs.claude.com/en/docs/claude-code/hooks`)로 확인하고 §8.2 표를 고친다. **추측으로 구현하지 않는다.**
+- `resources/hooks/session-canvas-hook.sh` (SPEC 8.3) — jq 금지, 항상 `exit 0`, stdout 없음
+- `src/main/status/mapEvent.ts` (순수 함수, **단위 테스트 필수**), `status/StatusWatcher.ts`
+- `src/main/hooks/mergeSettings.ts` (순수 함수, **단위 테스트 필수**), `hooks/HookInstaller.ts`
+- `src/main/notify/Notifier.ts` — macOS 알림, Dock 배지
+- 노드 헤더 상태 배지(SPEC 8.1) — 지금은 `○` 자리만 잡아 뒀다
+- 완료 기준: 프롬프트 제출 → 작업 중 · 권한 요청 → 입력 대기 · 응답 종료 → 완료 · 포커스 시 unseen 해제 · **앱 밖 iTerm의 Claude Code에는 영향 없음** · 설치/제거가 기존 `settings.json`을 보존
 
-시작 전 확인할 것:
-- **R2(Shift+Enter 등 확장 키), R4(tmux 안 Claude Code 렌더링)를 이때 확인한다.** 단계 1·2에서 통과한 한글·Esc·Shift+Tab을 tmux를 끼운 뒤 다시 돌려 비교할 것 — `verify:terminal`·`verify:canvas`가 그 비교의 기준선이다.
-- 지금 노드를 닫으면 프로세스가 죽는다. 단계 3부터 닫기는 **분리**이고 tmux 세션은 살아남아야 한다. `TerminalRegistry.dispose`와 헤더 `×`의 의미가 달라진다.
-- 노드 id는 `nanoid(10)`이고 tmux 세션 이름은 `sc-<id>`로 이미 저장되고 있다(`TerminalNodeData.tmuxSession`).
+시작 전 반드시 알아야 할 것:
+- **`~/.claude/settings.json`은 사용자 전역 설정이다 (SPEC 0.4/8.4).** 앱 UI에서 명시적 동의를 받은 뒤에만, 백업하고 병합한다. 개발 중 테스트는 임시 HOME이나 fixture로 한다. 이 세션이 쓰는 Claude Code 설정이기도 하니 특히 조심할 것.
+- `SESSION_CANVAS_NODE_ID`는 이미 tmux `-e`로 주입되고 있다(`buildArgs.ts`). 훅 스크립트는 이 값만 보면 된다.
+- `claudeSessionId`는 `SessionStart` 훅에서 채워지고, 그래야 SPEC 5.4의 [이전 대화 이어서]가 동작한다. 지금은 `DetachedSession.tsx`에 [새로 시작]만 있다.
+- R8(재부팅 후 tmux 세션 소멸 → resume 흐름)도 단계 4에서 확인한다.
 
 ## 6. 삽질 기록
+
+### 3-1. 점검 스크립트가 영원히 멈췄다 ⭐
+증상: `verify:persistence`가 첫 확인 항목도 못 찍고 10분 넘게 매달려 있었다.
+
+원인: CDP 클라이언트가 보낸 요청을 `pending` 맵에 넣고 응답만 기다렸다. 앱을 SIGKILL하면 웹소켓이 닫히는데, **닫힘을 아무도 처리하지 않아 대기 중인 프로미스가 영원히 미결**로 남았다.
+
+해결: `ws.onclose`에서 대기 중인 요청을 전부 reject하고, 명령마다 30초 타임아웃을, 점검 전체에 5분 워치독을 뒀다. **멈춘 채 방치되는 것보다 실패가 낫다.**
+
+### 3-2. 로그인 셸이 질문을 던지면 점검이 막힌다
+`oh-my-zsh`가 "Would you like to update? [Y/n]"을 띄우고 셸이 멈춰 있었다. 앱은 멀쩡했다 — 사용자의 로그인 셸을 충실히 띄운 결과이고, iTerm에서도 똑같이 나온다.
+→ 점검에서만 `DISABLE_AUTO_UPDATE=true`로 끈다. 타임아웃 메시지에 **마지막 화면**을 함께 찍도록 해서 다음엔 바로 알 수 있게 했다.
+
+### 3-3. 재접속 후 화면에는 "마지막 화면"만 돌아온다
+강제 종료 전에 남긴 마커를 재시작 후에 찾다가 실패했다. 그 사이 `seq 1 200`을 돌려 마커가 화면 밖으로 밀려난 것.
+→ tmux가 재접속 때 다시 그려 주는 것은 **보이는 화면뿐**이고, 그 위 내용은 tmux 스크롤백에 있지 xterm 버퍼에는 없다. 점검 순서를 바꿔 해결.
+
+### 3-4. `index.d.ts`는 `index.ts` 옆에 두면 무시된다 ⭐
+`src/preload/index.d.ts`의 `declare global { Window.api }`가 tsconfig.node에서 안 먹혀 `window.api` 타입 오류가 났다. TypeScript가 **같은 이름의 `.ts`가 있으면 `.d.ts`를 그 출력물로 보고 건너뛴다.**
+→ `src/preload/api.d.ts`로 이름을 바꿨다.
+
+### 3-5. 점검이 실제 tmux 세션과 워크스페이스를 건드렸다
+`verify:terminal`이 갑자기 실패했는데, 원인은 이전 점검이 남긴 노드를 `workspace.json`에서 읽어와 "세션 없음" 상태로 띄운 것이었다(그 노드엔 터미널이 없다).
+→ 모든 점검이 전용 소켓(`SESSION_CANVAS_TMUX_SOCKET`)과 임시 `--user-data-dir`을 쓰도록 격리했다. 끝나면 그 소켓의 서버를 죽인다.
+
+### 3-6. 휠 방향을 반대로 보내고 앱을 의심했다
+`deltaY: 120`(아래로)을 보내 놓고 tmux 스크롤백에 안 들어간다고 판단했다. 위로 굴리는 건 **음수**다. 게다가 `document.querySelector('.terminal-area')`가 다른 노드를 집고 있었다.
+→ 단계 2의 2-4와 같은 실수다. **점검 실패는 앱 버그보다 점검 코드 문제일 때가 더 많다.**
 
 ### 2-1. 노드를 클릭해도 선택되지 않아 리사이즈 핸들이 안 나왔다 ⭐
 증상: `NodeResizer`를 붙였는데 핸들이 아무리 해도 안 보였다.

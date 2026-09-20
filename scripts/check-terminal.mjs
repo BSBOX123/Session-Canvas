@@ -17,7 +17,10 @@
  *
  * 모두 통과하면 0, 아니면 1로 끝난다.
  */
-import { homedir } from 'node:os'
+import { execFileSync } from 'node:child_process'
+import { mkdtempSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
+import { join } from 'node:path'
 import {
   connect,
   createReporter,
@@ -30,6 +33,27 @@ import {
 } from './lib/cdp.mjs'
 
 const options = parseArgs(process.argv.slice(2))
+
+// 점검이 실제 tmux 세션·워크스페이스를 건드리지 않게 격리한다 (SPEC 14.2).
+const launch = {
+  ...options,
+  env: {
+    SESSION_CANVAS_TMUX_SOCKET: 'session-canvas-check-term',
+    // 로그인 셸이 "업데이트할까요?" 같은 질문으로 멈춰 서면 점검이 막힌다.
+    DISABLE_AUTO_UPDATE: 'true',
+    DISABLE_UPDATE_PROMPT: 'true'
+  },
+  electronArgs: [`--user-data-dir=${mkdtempSync(join(tmpdir(), 'session-canvas-check-'))}`]
+}
+
+/** 점검이 끝나면 남은 세션을 정리한다. */
+function killCheckServer() {
+  try {
+    execFileSync('tmux', ['-L', 'session-canvas-check-term', 'kill-server'], { stdio: 'ignore' })
+  } catch {
+    /* 서버가 없으면 그만이다 */
+  }
+}
 /** 노드 id는 nanoid라 실행할 때마다 다르다. 부트스트랩에서 정해진다. */
 let NODE_ID = ''
 let TERM = ''
@@ -42,7 +66,7 @@ try {
         `포트 ${options.port}에 이미 앱이 떠 있습니다. --attach 또는 --port 를 쓰세요.`
       )
     }
-    dev = startDevApp(options)
+    dev = startDevApp(launch)
   }
 
   const client = await connect(await waitForPageTarget(options))
@@ -244,6 +268,7 @@ try {
   if (dev && !options.verbose) console.error(dev.mainLog.join(''))
   process.exitCode = 1
 } finally {
+  killCheckServer()
   if (dev && !options.keep) stopDevApp(dev.child)
   else if (dev) console.log(`앱을 그대로 둡니다 (pid ${dev.child.pid}).`)
 }

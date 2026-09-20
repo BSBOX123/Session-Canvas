@@ -1,10 +1,12 @@
 /**
  * 워크스페이스 상태 (SPEC D8, 9.1).
  *
- * 단계 2에서는 메모리에만 있다. `workspace.json` 영속화는 단계 3.
+ * 영속 대상은 `Workspace` 부분뿐이다. 세션 존재 여부·분리된 세션 목록은
+ * tmux에서 매번 재구성한다 (SPEC 9.1) — 저장하지 않는다.
  */
 import { nanoid } from 'nanoid'
 import { create } from 'zustand'
+import type { OrphanSession } from '@shared/ipc'
 import { DEFAULT_SETTINGS, type NodeId, type TerminalNodeData, type Workspace } from '@shared/types'
 
 /** SPEC 7.1: 최소 크기. */
@@ -19,10 +21,48 @@ export interface NewNodeInput {
 }
 
 interface WorkspaceState extends Omit<Workspace, 'version'> {
+  /** 첫 로드가 끝나기 전에는 저장하지 않는다 — 빈 상태로 덮어쓰면 안 된다. */
+  hydrated: boolean
+  /** tmux 세션이 없는 노드 (SPEC 5.4 "세션 없음"). */
+  missingSessions: ReadonlySet<NodeId>
+  /** 워크스페이스에 없는 tmux 세션 (SPEC 5.4 "분리된 세션"). */
+  orphans: OrphanSession[]
+  /** 로드 실패·복구 안내 (SPEC 9.2). */
+  notice: string | null
+
+  hydrate(workspace: Workspace, notice: string | null): void
   addNode(input: NewNodeInput): TerminalNodeData
+  /** 분리된 세션을 원래 id 그대로 노드로 되살린다 (SPEC 5.4). */
+  restoreNode(session: OrphanSession, position: { x: number; y: number }): TerminalNodeData
   updateNode(id: NodeId, patch: Partial<TerminalNodeData>): void
   removeNode(id: NodeId): void
   setViewport(viewport: Workspace['viewport']): void
+  setMissingSessions(ids: NodeId[]): void
+  markSessionStarted(id: NodeId): void
+  setOrphans(orphans: OrphanSession[]): void
+  dismissNotice(): void
+}
+
+function makeNode(
+  id: NodeId,
+  input: Omit<NewNodeInput, 'position'>,
+  position: { x: number; y: number }
+): TerminalNodeData {
+  const now = new Date().toISOString()
+  return {
+    id,
+    title: input.title,
+    description: '',
+    cwd: input.cwd,
+    command: input.command,
+    tmuxSession: `sc-${id}`,
+    claudeSessionId: null,
+    position,
+    size: { ...DEFAULT_NODE_SIZE },
+    color: null,
+    createdAt: now,
+    updatedAt: now
+  }
 }
 
 /** nanoid 기본 알파벳은 `[A-Za-z0-9_-]`라 `NODE_ID_PATTERN`을 그대로 만족한다. */
@@ -64,25 +104,60 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   nodes: [],
   settings: { ...DEFAULT_SETTINGS },
 
+  hydrated: false,
+  missingSessions: new Set<NodeId>(),
+  orphans: [],
+  notice: null,
+
+  hydrate(workspace, notice) {
+    set({
+      nodes: workspace.nodes,
+      viewport: workspace.viewport,
+      settings: workspace.settings,
+      notice,
+      hydrated: true
+    })
+  },
+
   addNode(input) {
-    const id = newNodeId()
-    const now = new Date().toISOString()
-    const node: TerminalNodeData = {
-      id,
-      title: input.title,
-      description: '',
-      cwd: input.cwd,
-      command: input.command,
-      tmuxSession: `sc-${id}`,
-      claudeSessionId: null,
-      position: placeWithoutOverlap(get().nodes, input.position),
-      size: { ...DEFAULT_NODE_SIZE },
-      color: null,
-      createdAt: now,
-      updatedAt: now
-    }
+    const node = makeNode(newNodeId(), input, placeWithoutOverlap(get().nodes, input.position))
     set((state) => ({ nodes: [...state.nodes, node] }))
     return node
+  },
+
+  restoreNode(session, position) {
+    const node = makeNode(
+      session.id,
+      // 명령은 이미 그 세션 안에서 돌고 있다. 다시 실행하면 안 된다 — `-A`로
+      // 붙기만 하므로 여기 값은 쓰이지 않지만, 의미상 null이 맞다.
+      { cwd: session.cwd, title: '', command: null },
+      placeWithoutOverlap(get().nodes, position)
+    )
+    set((state) => ({
+      nodes: [...state.nodes, node],
+      orphans: state.orphans.filter((o) => o.id !== session.id)
+    }))
+    return node
+  },
+
+  setMissingSessions(ids) {
+    set({ missingSessions: new Set(ids) })
+  },
+
+  markSessionStarted(id) {
+    set((state) => {
+      const next = new Set(state.missingSessions)
+      next.delete(id)
+      return { missingSessions: next }
+    })
+  },
+
+  setOrphans(orphans) {
+    set({ orphans })
+  },
+
+  dismissNotice() {
+    set({ notice: null })
   },
 
   updateNode(id, patch) {
@@ -94,10 +169,39 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   },
 
   removeNode(id) {
-    set((state) => ({ nodes: state.nodes.filter((node) => node.id !== id) }))
+    set((state) => {
+      const missing = new Set(state.missingSessions)
+      missing.delete(id)
+      return { nodes: state.nodes.filter((node) => node.id !== id), missingSessions: missing }
+    })
   },
 
   setViewport(viewport) {
     set({ viewport })
   }
 }))
+
+/**
+ * 변경될 때마다 main으로 보낸다. 실제 쓰기는 main에서 500ms 디바운스 후
+ * 원자적으로 한다 (SPEC 9.2).
+ */
+export function startPersistence(): () => void {
+  let previous = selectPersisted(useWorkspace.getState())
+  return useWorkspace.subscribe((state) => {
+    if (!state.hydrated) return
+    const next = selectPersisted(state)
+    if (next === previous) return
+    previous = next
+    window.api.workspace.save(JSON.parse(next) as Workspace)
+  })
+}
+
+/** 저장 대상만 골라 문자열로. 얕은 비교로는 매 렌더 저장이 튄다. */
+function selectPersisted(state: WorkspaceState): string {
+  return JSON.stringify({
+    version: 1,
+    viewport: state.viewport,
+    nodes: state.nodes,
+    settings: state.settings
+  })
+}

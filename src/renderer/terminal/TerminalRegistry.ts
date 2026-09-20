@@ -37,7 +37,7 @@ function subscribeOnce(): void {
   })
 }
 
-function createTerminal(): { terminal: Terminal; fit: FitAddon } {
+function createTerminal(id: NodeId): { terminal: Terminal; fit: FitAddon } {
   const terminal = new Terminal({
     fontFamily: DEFAULT_SETTINGS.fontFamily,
     fontSize: DEFAULT_SETTINGS.fontSize,
@@ -58,6 +58,28 @@ function createTerminal(): { terminal: Terminal; fit: FitAddon } {
   terminal.unicode.activeVersion = '11'
   terminal.loadAddon(new ClipboardAddon())
   terminal.loadAddon(new WebLinksAddon())
+
+  terminal.attachCustomKeyEventHandler((event) => {
+    // SPEC 13 R2 — Shift+Enter로 Claude Code에 줄바꿈을 넣는다.
+    //
+    // 확인 결과(단계 3): xterm은 Shift+Enter를 그냥 Enter와 똑같이 보낸다.
+    // 터미널이 구별해 주지 않으면 Claude Code도 알 수 없다. iTerm에서
+    // `claude` 의 `/terminal-setup`이 하는 것과 같은 방식으로, 여기서
+    // `ESC CR`(= Option+Enter와 같은 바이트)로 바꿔 보낸다.
+    const plainShiftEnter =
+      event.type === 'keydown' &&
+      event.key === 'Enter' &&
+      event.shiftKey &&
+      !event.ctrlKey &&
+      !event.altKey &&
+      !event.metaKey
+    if (plainShiftEnter) {
+      window.api.pty.write(id, '\u001b\r')
+      return false
+    }
+    return true
+  })
+
   return { terminal, fit }
 }
 
@@ -81,7 +103,7 @@ export function acquire(node: TerminalNodeData, container: HTMLElement): Termina
   host.className = 'xterm-host'
   container.appendChild(host)
 
-  const { terminal, fit } = createTerminal()
+  const { terminal, fit } = createTerminal(node.id)
   terminal.open(host)
   fit.fit()
 
@@ -118,12 +140,18 @@ export function focus(id: NodeId): void {
   entries.get(id)?.terminal.focus()
 }
 
-/** 노드를 닫을 때만 부른다 (SPEC 6.4). PTY도 함께 정리한다. */
-export function dispose(id: NodeId): void {
+/**
+ * 노드를 닫을 때만 부른다 (SPEC 6.4).
+ *
+ *  - `detach`: PTY(= tmux 클라이언트)만 끊는다. **tmux 세션은 살아남는다** —
+ *    노드 닫기의 기본 동작이고, 그 세션은 "분리된 세션"으로 되살릴 수 있다.
+ *  - `kill`: `tmux kill-session`까지 해서 세션을 완전히 끝낸다.
+ */
+export function dispose(id: NodeId, mode: 'detach' | 'kill'): void {
   const entry = entries.get(id)
   if (!entry) return
   entries.delete(id)
-  void window.api.pty.detach(id)
+  void (mode === 'kill' ? window.api.pty.kill(id) : window.api.pty.detach(id))
   entry.terminal.dispose()
   entry.host.remove()
 }

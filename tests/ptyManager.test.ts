@@ -7,6 +7,8 @@ vi.mock('node-pty', () => ({ spawn: (...args: unknown[]) => spawn(...args) }))
 
 const { PtyManager } = await import('../src/main/pty/PtyManager')
 
+const TMUX = { socket: 'session-canvas-test', configPath: '/app/resources/tmux.conf' }
+
 interface FakePty {
   write: ReturnType<typeof vi.fn>
   resize: ReturnType<typeof vi.fn>
@@ -46,7 +48,7 @@ describe('PtyManager', () => {
     const pty = fakePty()
     spawn.mockReturnValue(pty)
     const onData = vi.fn()
-    const manager = new PtyManager({ SHELL: '/bin/zsh' }, { onData, onExit: vi.fn() })
+    const manager = new PtyManager({ SHELL: '/bin/zsh' }, TMUX, { onData, onExit: vi.fn() })
 
     manager.open(REQ, 80, 24)
     pty.emitData('a')
@@ -62,7 +64,10 @@ describe('PtyManager', () => {
     const first = fakePty()
     const second = fakePty()
     spawn.mockReturnValueOnce(first).mockReturnValueOnce(second)
-    const manager = new PtyManager({ SHELL: '/bin/zsh' }, { onData: vi.fn(), onExit: vi.fn() })
+    const manager = new PtyManager({ SHELL: '/bin/zsh' }, TMUX, {
+      onData: vi.fn(),
+      onExit: vi.fn()
+    })
 
     manager.open(REQ, 80, 24)
     manager.open(REQ, 80, 24)
@@ -80,7 +85,7 @@ describe('PtyManager', () => {
     const second = fakePty()
     spawn.mockReturnValueOnce(first).mockReturnValueOnce(second)
     const onExit = vi.fn()
-    const manager = new PtyManager({ SHELL: '/bin/zsh' }, { onData: vi.fn(), onExit })
+    const manager = new PtyManager({ SHELL: '/bin/zsh' }, TMUX, { onData: vi.fn(), onExit })
 
     manager.open(REQ, 80, 24)
     manager.open(REQ, 80, 24)
@@ -96,7 +101,7 @@ describe('PtyManager', () => {
     const second = fakePty()
     spawn.mockReturnValueOnce(first).mockReturnValueOnce(second)
     const onData = vi.fn()
-    const manager = new PtyManager({ SHELL: '/bin/zsh' }, { onData, onExit: vi.fn() })
+    const manager = new PtyManager({ SHELL: '/bin/zsh' }, TMUX, { onData, onExit: vi.fn() })
 
     manager.open(REQ, 80, 24)
     manager.open(REQ, 80, 24)
@@ -111,7 +116,7 @@ describe('PtyManager', () => {
     spawn.mockReturnValue(pty)
     const onData = vi.fn()
     const onExit = vi.fn()
-    const manager = new PtyManager({ SHELL: '/bin/zsh' }, { onData, onExit })
+    const manager = new PtyManager({ SHELL: '/bin/zsh' }, TMUX, { onData, onExit })
 
     manager.open(REQ, 80, 24)
     pty.emitData('마지막 줄')
@@ -121,10 +126,15 @@ describe('PtyManager', () => {
     expect(onExit).toHaveBeenCalledWith('main', 3)
   })
 
-  it('detach는 PTY만 죽이고, 이후 write는 조용히 무시된다', () => {
+  // SPEC 5.3: 노드 닫기의 기본 동작. tmux 세션은 살아남아야 하므로
+  // PtyManager는 tmux 세션에 손대지 않는다 (kill-session은 IPC 계층이 한다).
+  it('detach는 PTY(tmux 클라이언트)만 죽이고, 이후 write는 조용히 무시된다', () => {
     const pty = fakePty()
     spawn.mockReturnValue(pty)
-    const manager = new PtyManager({ SHELL: '/bin/zsh' }, { onData: vi.fn(), onExit: vi.fn() })
+    const manager = new PtyManager({ SHELL: '/bin/zsh' }, TMUX, {
+      onData: vi.fn(),
+      onExit: vi.fn()
+    })
 
     manager.open(REQ, 80, 24)
     manager.detach('main')
@@ -134,19 +144,32 @@ describe('PtyManager', () => {
     expect(pty.write).not.toHaveBeenCalled()
   })
 
-  it('로그인 셸과 UTF-8 로케일로 띄운다 (SPEC 4.4)', () => {
+  it('tmux 클라이언트를 로그인 셸·UTF-8 로케일로 띄운다 (SPEC 4.4/5.3)', () => {
     const pty = fakePty()
     spawn.mockReturnValue(pty)
     const manager = new PtyManager(
       { SHELL: '/opt/homebrew/bin/zsh', PATH: '/opt/homebrew/bin' },
+      TMUX,
       { onData: vi.fn(), onExit: vi.fn() }
     )
 
     manager.open(REQ, 120, 40)
 
     const [file, args, opts] = spawn.mock.calls[0] as [string, string[], Record<string, unknown>]
-    expect(file).toBe('/opt/homebrew/bin/zsh')
-    expect(args).toEqual(['-l'])
+    expect(file).toBe('tmux')
+    // 전용 소켓·설정으로 격리하고, 세션이 있으면 붙는다 (SPEC 5.1/5.3).
+    expect(args.slice(0, 8)).toEqual([
+      '-L',
+      'session-canvas-test',
+      '-f',
+      '/app/resources/tmux.conf',
+      'new-session',
+      '-A',
+      '-s',
+      'sc-main'
+    ])
+    expect(args).toContain('SESSION_CANVAS_NODE_ID=main')
+    expect(args.slice(-2)).toEqual(['/opt/homebrew/bin/zsh', '-l'])
     expect(opts.cols).toBe(120)
     const env = opts.env as Record<string, string>
     expect(env.PATH).toBe('/opt/homebrew/bin')

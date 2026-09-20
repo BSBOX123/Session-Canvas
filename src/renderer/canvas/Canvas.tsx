@@ -12,17 +12,24 @@ import {
 import '@xyflow/react/dist/style.css'
 import TerminalNode, { type TerminalFlowNode } from '../nodes/TerminalNode'
 import NewNodeDialog from '../nodes/NewNodeDialog'
+import OrphanSessions from './OrphanSessions'
 import { useWorkspace, type NewNodeInput } from '../state/workspace'
 import { focus } from '../terminal/TerminalRegistry'
 
 /** 모듈 최상단에 두어야 매 렌더마다 새 객체가 되지 않는다. */
 const nodeTypes = { terminal: TerminalNode }
 
+/** 두 손가락 스크롤 팬 속도. React Flow 기본값 0.5는 트랙패드에서 답답하다. */
+const PAN_ON_SCROLL_SPEED = 1.2
+
 function CanvasInner(): React.JSX.Element {
   const nodes = useWorkspace((s) => s.nodes)
   const addNode = useWorkspace((s) => s.addNode)
   const updateNode = useWorkspace((s) => s.updateNode)
   const setViewport = useWorkspace((s) => s.setViewport)
+  const viewport = useWorkspace((s) => s.viewport)
+  const notice = useWorkspace((s) => s.notice)
+  const dismissNotice = useWorkspace((s) => s.dismissNotice)
   const { screenToFlowPosition } = useReactFlow()
 
   const [dialogPosition, setDialogPosition] = useState<{ x: number; y: number } | null>(null)
@@ -130,12 +137,14 @@ function CanvasInner(): React.JSX.Element {
         // SPEC 7.4: 두 손가락 스크롤은 캔버스 팬, 핀치는 줌.
         // 포인터가 터미널 위면 `nowheel` 덕분에 여기로 오지 않고 터미널이 받는다.
         panOnScroll
+        panOnScrollSpeed={PAN_ON_SCROLL_SPEED}
         zoomOnScroll={false}
         zoomOnPinch
         // 터미널이 Backspace를 쓰기 때문에 노드 삭제 단축키를 비운다.
         deleteKeyCode={null}
         multiSelectionKeyCode={null}
         selectionKeyCode={null}
+        defaultViewport={viewport}
         minZoom={0.1}
         maxZoom={2}
         proOptions={{ hideAttribution: false }}
@@ -144,6 +153,17 @@ function CanvasInner(): React.JSX.Element {
         <Controls showInteractive={false} />
         <MiniMap pannable zoomable nodeColor="#2b3a4a" maskColor="rgba(0,0,0,0.5)" />
       </ReactFlow>
+
+      <OrphanSessions />
+
+      {notice !== null && (
+        <div className="notice">
+          <span>{notice}</span>
+          <button type="button" onClick={dismissNotice}>
+            닫기
+          </button>
+        </div>
+      )}
 
       {nodes.length === 0 && dialogPosition === null && (
         <div className="empty-hint">

@@ -129,7 +129,8 @@ session-canvas/
 │  ├─ lib/cdp.mjs                    # CDP 점검 공용 도구 (14.3)
 │  ├─ inspect-renderer.mjs           # 렌더러 스모크 확인 (14.3)
 │  ├─ check-terminal.mjs             # 터미널 기능 확인 (14.3)
-│  └─ check-canvas.mjs               # 캔버스·다중 노드 확인 (14.3)
+│  ├─ check-canvas.mjs               # 캔버스·다중 노드 확인 (14.3)
+│  └─ check-persistence.mjs          # tmux·영속성 확인 (14.3)
 ├─ src/
 │  ├─ shared/
 │  │  ├─ types.ts                    # 9장 데이터 모델
@@ -145,7 +146,9 @@ session-canvas/
 │  │  ├─ hooks/HookInstaller.ts
 │  │  ├─ hooks/mergeSettings.ts      # 순수 함수, 단위 테스트 대상
 │  │  ├─ workspace/WorkspaceStore.ts
+│  │  ├─ workspace/serialize.ts      # 순수 함수, 단위 테스트 대상
 │  │  ├─ notify/Notifier.ts
+│  │  ├─ resources.ts                # resources/ 실제 파일 경로 해석
 │  │  └─ ipc.ts
 │  ├─ preload/index.ts
 │  └─ renderer/
@@ -155,6 +158,8 @@ session-canvas/
 │     ├─ nodes/NodeHeader.tsx
 │     ├─ nodes/NodeDescription.tsx
 │     ├─ nodes/NewNodeDialog.tsx     # 7.2
+│     ├─ nodes/DetachedSession.tsx   # 5.4 "세션 없음"
+│     ├─ canvas/OrphanSessions.tsx   # 5.4 "분리된 세션"
 │     ├─ devBridge.ts                # 개발 모드 점검 훅 (14.3)
 │     ├─ terminal/TerminalRegistry.ts
 │     ├─ terminal/XtermView.tsx
@@ -256,7 +261,13 @@ React 노드가 언마운트되어도 터미널 버퍼가 사라지면 안 된�
 - `XtermView`는 마운트 시 `hostEl`을 자기 DOM에 붙이고(append), 언마운트 시 떼어낼 뿐 `dispose`하지 않는다.
 - `dispose`는 노드를 닫거나 세션을 종료할 때만.
 
-### 6.5 스크롤·선택
+### 6.5 확장 키 (Shift+Enter)
+단계 3에서 확인한 결과(13장 R2): **xterm은 Shift+Enter를 그냥 Enter와 똑같이 보낸다.** 터미널이 구별해 주지 않으므로 tmux의 `extended-keys on`만으로는 Claude Code가 알 수 없다.
+- `attachCustomKeyEventHandler`에서 Shift+Enter를 가로채 **`ESC CR`(`\u001b\r`)** 로 보낸다. iTerm에서 `claude`의 `/terminal-setup`이 설정하는 것과 같은 바이트다.
+- Option+Enter는 원래부터 `ESC CR`이라 손대지 않는다.
+- 이것은 터미널 전체에 적용된다. 셸에서 Shift+Enter는 이제 `M-RET`가 되는데, 원래 Enter와 구별되지 않던 키라 잃는 것이 없다.
+
+### 6.6 스크롤·선택
 - tmux `mouse on`이므로 휠은 tmux 스크롤백으로 간다.
 - `macOptionClickForcesSelection: true` → Option+드래그로 xterm 자체 선택도 가능.
 - `macOptionIsMeta`는 설정으로 둔다(기본 false).
@@ -284,6 +295,8 @@ React 노드가 언마운트되어도 터미널 버퍼가 사라지면 안 된�
 - 리사이즈: React Flow `NodeResizer`, 최소 360×220px. 리사이즈 종료 시 fit → `pty.resize`.
   - `NodeResizer`는 노드가 **선택됐을 때만** 핸들을 보여준다. React Flow를 제어 모드로 쓰면 선택 상태도 앱이 들고 있어야 한다 — 안 그러면 핸들이 영영 안 나타난다. 선택은 화면 상태라 `workspace.json`에는 넣지 않는다.
 - 색 라벨(선택): 헤더 좌측 띠 색. 단계 6.
+- 헤더 `×`를 누르면 **닫기(분리)** 와 **세션 종료** 중에서 고르게 한다. 기본은 분리이고, 종료만 파괴적이라 같은 자리에서 한 번 더 확인하는 셈이 된다 (5.3).
+- **네이티브 `confirm`/`alert`을 쓰지 않는다.** 렌더러를 멈춰 세우고, CDP 기반 점검(14.3)도 막힌다. 확인 UI는 앱 안에서 그린다.
 
 ### 7.2 노드 생성
 `Cmd+N` 또는 빈 캔버스 더블클릭 → 대화상자:
@@ -468,7 +481,13 @@ interface Api {
     onExit(cb: (id: NodeId, code: number) => void): Unsubscribe;
   };
   workspace: {
-    load(): Promise<Workspace>;
+    // 9.2의 복구 경로(백업에서 복구·손상·상위 버전)를 renderer가 알아야 하므로
+    // Workspace만 주지 않고 상태와 안내 문구를 함께 준다.
+    load(): Promise<{
+      workspace: Workspace;
+      status: 'ok' | 'empty' | 'recovered-from-backup' | 'corrupt' | 'unsupported-version';
+      message: string | null;
+    }>;
     save(ws: Workspace): void;                  // main에서 디바운스
   };
   status: {
@@ -476,7 +495,8 @@ interface Api {
   };
   tmux: {
     check(): Promise<{ ok: boolean; version: string | null }>;
-    listOrphans(known: NodeId[]): Promise<string[]>;
+    // 되살릴 때 폴더를 보여줘야 해서 세션의 `#{session_path}`까지 준다.
+    listOrphans(known: NodeId[]): Promise<{ id: NodeId; cwd: string }[]>;
     exists(id: NodeId): Promise<boolean>;
   };
   hooks: {
@@ -557,6 +577,7 @@ type PtyOpenRequest = Pick<TerminalNodeData, 'id' | 'command'> & { cwd: string |
 
 ### 14.2 통합 테스트
 - tmux가 설치된 환경에서만 실행(`describe.skipIf`): 세션 생성 → has-session → kill → 목록에서 사라짐. **전용 소켓 이름에 테스트용 접미사**를 붙여 실제 세션과 충돌하지 않게 한다.
+- 앱을 띄워서 하는 점검(14.3)도 같은 격리가 필요하다. 소켓은 환경변수 `SESSION_CANVAS_TMUX_SOCKET`으로, 워크스페이스 파일은 Electron의 `--user-data-dir`로 갈아끼운다.
 - 훅 스크립트: 임시 HOME으로 stdin 주입 → 상태 파일 생성 확인, 환경변수 없을 때 파일 미생성 확인, 잘못된 id 거부 확인.
 
 ### 14.3 수동 인수 테스트
@@ -576,3 +597,5 @@ type PtyOpenRequest = Pick<TerminalNodeData, 'id' | 'command'> & { cwd: string |
 | v0.1.2 | 2026-09-20 | §4.2에 `scripts/inspect-renderer.mjs` 추가, §14.3에 CDP 기반 렌더러 스모크 확인 절차와 원격 디버깅 포트 주의사항 명시 |
 | v0.1.3 | 2026-09-20 | 단계 1 구현 중 개정: §10 `pty.open`이 `TerminalNodeData` 전체 대신 `PtyOpenRequest`(id·cwd·command)를 받는다, 재오픈 시 이전 PTY 이벤트 폐기 규칙 추가. §4.4에 PTY 환경변수(`TERM`·`COLORTERM`·`LANG`) 규칙 추가. §4.2·§14.3에 `scripts/check-terminal.mjs`와 `scripts/lib/cdp.mjs` 추가 |
 | v0.1.4 | 2026-09-20 | 단계 2 구현 중 개정: §7.1에 `NodeResizer`의 선택 상태 요구사항, §7.5에 React Flow `deleteKeyCode` 주의 추가. §4.2에 `nodes/NodeDescription.tsx`·`nodes/NewNodeDialog.tsx`·`devBridge.ts`·`scripts/check-canvas.mjs` 추가 |
+| v0.1.5 | 2026-09-20 | 단계 3 구현 중 개정: §10 `workspace.load`가 복구 상태·안내를 함께 주고 `tmux.listOrphans`가 세션 폴더까지 준다. §7.1에 닫기(분리)/세션 종료 선택과 네이티브 대화상자 금지 명시. §14.2에 점검용 소켓·userData 격리 방법 추가. §4.2에 `main/resources.ts`·`main/workspace/serialize.ts`·`nodes/DetachedSession.tsx`·`canvas/OrphanSessions.tsx`·`scripts/check-persistence.mjs` 추가 |
+| v0.1.6 | 2026-09-20 | 단계 3 R2 확인 결과 반영: §6.5 신설 — xterm이 Shift+Enter를 Enter와 구별하지 않으므로 `ESC CR`로 바꿔 보낸다. 기존 6.5(스크롤·선택)는 6.6으로 밀림 |

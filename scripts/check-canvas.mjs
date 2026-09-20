@@ -12,7 +12,10 @@
  *   npm run verify:canvas
  *   node scripts/check-canvas.mjs --attach --port 9222
  */
-import { homedir } from 'node:os'
+import { execFileSync } from 'node:child_process'
+import { mkdtempSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
+import { join } from 'node:path'
 import {
   connect,
   createReporter,
@@ -26,6 +29,27 @@ import {
 
 const options = parseArgs(process.argv.slice(2))
 
+// 점검이 실제 tmux 세션·워크스페이스를 건드리지 않게 격리한다 (SPEC 14.2).
+const launch = {
+  ...options,
+  env: {
+    SESSION_CANVAS_TMUX_SOCKET: 'session-canvas-check-canvas',
+    // 로그인 셸이 "업데이트할까요?" 같은 질문으로 멈춰 서면 점검이 막힌다.
+    DISABLE_AUTO_UPDATE: 'true',
+    DISABLE_UPDATE_PROMPT: 'true'
+  },
+  electronArgs: [`--user-data-dir=${mkdtempSync(join(tmpdir(), 'session-canvas-check-'))}`]
+}
+
+/** 점검이 끝나면 남은 세션을 정리한다. */
+function killCheckServer() {
+  try {
+    execFileSync('tmux', ['-L', 'session-canvas-check-canvas', 'kill-server'], { stdio: 'ignore' })
+  } catch {
+    /* 서버가 없으면 그만이다 */
+  }
+}
+
 let dev = null
 try {
   if (!options.attach) {
@@ -34,7 +58,7 @@ try {
         `포트 ${options.port}에 이미 앱이 떠 있습니다. --attach 또는 --port 를 쓰세요.`
       )
     }
-    dev = startDevApp(options)
+    dev = startDevApp(launch)
   }
 
   const client = await connect(await waitForPageTarget(options))
@@ -379,7 +403,10 @@ try {
   await sleep(300)
   await evaluate(`(() => {
     const el = document.querySelector('.react-flow__node[data-id=' + JSON.stringify(${JSON.stringify(closing)}) + ']')
-    const confirm = [...el.querySelectorAll('.node-button')].find((b) => b.textContent.trim() === '닫기')
+    // 단계 3부터 닫기는 "분리"다 — tmux 세션은 살아남는다 (SPEC 5.3).
+    const confirm = [...el.querySelectorAll('.node-button')].find((b) =>
+      b.textContent.includes('분리')
+    )
     confirm.click()
     return 1
   })()`)
@@ -399,6 +426,7 @@ try {
   if (dev && !options.verbose) console.error(dev.mainLog.join(''))
   process.exitCode = 1
 } finally {
+  killCheckServer()
   if (dev && !options.keep) stopDevApp(dev.child)
   else if (dev) console.log(`앱을 그대로 둡니다 (pid ${dev.child.pid}).`)
 }
