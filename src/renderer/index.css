@@ -24,4 +24,22 @@ body {
 
 .app {
   height: 100%;
+  /* 단계 1: 터미널 하나가 창 전체를 쓴다. 맨 윗줄은 hiddenInset 타이틀바 자리. */
+  padding: 32px 8px 8px;
+}
+
+.xterm-host {
+  height: 100%;
+  width: 100%;
+}
+
+/* 드래그로 창을 옮길 수 있게 타이틀바 영역을 비워 둔다. */
+.app::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 32px;
+  -webkit-app-region: drag;
 }

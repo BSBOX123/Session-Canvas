@@ -1,6 +1,12 @@
+import XtermView from './terminal/XtermView'
+
+/** 단계 1: 창 하나에 터미널 하나. 캔버스와 다중 노드는 단계 2. */
 function App(): React.JSX.Element {
-  // Stage 0: an empty canvas surface. The React Flow canvas lands in stage 2.
-  return <div className="app" />
+  return (
+    <div className="app">
+      <XtermView nodeId="main" cwd={null} command={null} />
+    </div>
+  )
 }
 
 export default App

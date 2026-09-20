@@ -1,0 +1,88 @@
+/**
+ * IPC 핸들러 등록. SPEC 11에 따라 renderer가 보낸 값은 전부 여기서 검증한다.
+ */
+import { statSync } from 'node:fs'
+import { isAbsolute } from 'node:path'
+import { BrowserWindow, ipcMain, type IpcMainInvokeEvent } from 'electron'
+import { CHANNELS, type PtyOpenRequest } from '../shared/ipc'
+import { MAX_COMMAND_LENGTH, NODE_ID_PATTERN, type NodeId } from '../shared/types'
+import type { PtyManager } from './pty/PtyManager'
+
+/** cols/rows의 상한. 터무니없는 값으로 PTY를 흔들지 못하게 한다. */
+const MAX_DIMENSION = 1000
+
+function assertNodeId(value: unknown): NodeId {
+  if (typeof value !== 'string' || !NODE_ID_PATTERN.test(value)) {
+    throw new Error(`잘못된 nodeId: ${String(value)}`)
+  }
+  return value
+}
+
+function assertDimension(value: unknown, label: string): number {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > MAX_DIMENSION) {
+    throw new Error(`잘못된 ${label}: ${String(value)}`)
+  }
+  return value
+}
+
+function assertOpenRequest(value: unknown): PtyOpenRequest {
+  if (typeof value !== 'object' || value === null) throw new Error('잘못된 open 요청')
+  const req = value as Record<string, unknown>
+  const id = assertNodeId(req.id)
+
+  let cwd: string | null = null
+  if (req.cwd !== null && req.cwd !== undefined) {
+    if (typeof req.cwd !== 'string' || !isAbsolute(req.cwd)) {
+      throw new Error(`cwd는 절대경로여야 합니다: ${String(req.cwd)}`)
+    }
+    if (!statSync(req.cwd, { throwIfNoEntry: false })?.isDirectory()) {
+      throw new Error(`cwd가 디렉터리가 아닙니다: ${req.cwd}`)
+    }
+    cwd = req.cwd
+  }
+
+  let command: string | null = null
+  if (req.command !== null && req.command !== undefined) {
+    if (typeof req.command !== 'string' || req.command.length > MAX_COMMAND_LENGTH) {
+      throw new Error('잘못된 command')
+    }
+    command = req.command
+  }
+
+  return { id, cwd, command }
+}
+
+export function registerIpcHandlers(pty: PtyManager): void {
+  ipcMain.handle(
+    CHANNELS.ptyOpen,
+    (_event: IpcMainInvokeEvent, req: unknown, cols: unknown, rows: unknown) => {
+      pty.open(assertOpenRequest(req), assertDimension(cols, 'cols'), assertDimension(rows, 'rows'))
+    }
+  )
+
+  ipcMain.on(CHANNELS.ptyWrite, (_event, id: unknown, data: unknown) => {
+    if (typeof data !== 'string') return
+    pty.write(assertNodeId(id), data)
+  })
+
+  ipcMain.on(CHANNELS.ptyResize, (_event, id: unknown, cols: unknown, rows: unknown) => {
+    pty.resize(assertNodeId(id), assertDimension(cols, 'cols'), assertDimension(rows, 'rows'))
+  })
+
+  ipcMain.handle(CHANNELS.ptyDetach, (_event, id: unknown) => {
+    pty.detach(assertNodeId(id))
+  })
+
+  ipcMain.handle(CHANNELS.ptyKill, (_event, id: unknown) => {
+    pty.kill(assertNodeId(id))
+  })
+}
+
+/** main → renderer 단방향 이벤트. 창이 사라진 뒤에는 보내지 않는다. */
+export function createForwarder(getWindow: () => BrowserWindow | null) {
+  return (channel: string, ...args: unknown[]): void => {
+    const win = getWindow()
+    if (win === null || win.isDestroyed()) return
+    win.webContents.send(channel, ...args)
+  }
+}

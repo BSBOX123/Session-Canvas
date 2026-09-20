@@ -126,7 +126,9 @@ session-canvas/
 │  ├─ tmux.conf                      # 5.2
 │  └─ hooks/session-canvas-hook.sh   # 8.3
 ├─ scripts/
-│  └─ inspect-renderer.mjs           # 렌더러 스모크 확인 (14.3)
+│  ├─ lib/cdp.mjs                    # CDP 점검 공용 도구 (14.3)
+│  ├─ inspect-renderer.mjs           # 렌더러 스모크 확인 (14.3)
+│  └─ check-terminal.mjs             # 터미널 기능 확인 (14.3)
 ├─ src/
 │  ├─ shared/
 │  │  ├─ types.ts                    # 9장 데이터 모델
@@ -165,6 +167,8 @@ session-canvas/
 Finder/Dock에서 실행한 macOS 앱은 **사용자 셸의 PATH를 물려받지 않는다.** `/opt/homebrew/bin`의 `tmux`, `claude`를 찾지 못한다.
 - 앱 시작 시 `$SHELL -ilc 'env'` 로 로그인 셸 환경을 한 번 읽어 main 프로세스 환경으로 사용한다(`shell-env` 패키지 사용 가능).
 - 모든 `tmux` 호출과 PTY 생성은 이 환경을 쓴다.
+- PTY에는 `TERM=xterm-256color`, `COLORTERM=truecolor`를 더해 준다(트루컬러).
+- 로케일이 UTF-8이 아니면 한글이 깨진다. 로그인 셸 환경에 `LANG`이 없으면 `ko_KR.UTF-8`을 기본값으로 넣는다.
 - 개발 모드(`npm run dev`)에서는 터미널의 PATH를 물려받아 문제가 가려지므로, 단계 6에서 **패키징된 앱으로 반드시 재확인**한다.
 
 ---
@@ -446,7 +450,9 @@ preload가 `window.api`로 노출한다. **renderer는 Node API에 직접 접근
 ```ts
 interface Api {
   pty: {
-    open(node: TerminalNodeData, cols: number, rows: number): Promise<void>; // new-session -A
+    // main이 실제로 필요한 것만 넘긴다(SPEC 11의 입력 검증 대상을 좁힌다).
+    // cwd가 null이면 main이 홈 디렉터리를 쓴다.
+    open(req: PtyOpenRequest, cols: number, rows: number): Promise<void>; // new-session -A
     write(id: NodeId, data: string): void;
     resize(id: NodeId, cols: number, rows: number): void;
     detach(id: NodeId): Promise<void>;          // PTY만 종료
@@ -475,7 +481,12 @@ interface Api {
   app: { setBadge(n: number): void; onNotificationClick(cb: (id: NodeId) => void): Unsubscribe };
 }
 ```
+```ts
+type PtyOpenRequest = Pick<TerminalNodeData, 'id' | 'command'> & { cwd: string | null };
+```
+
 - PTY 출력은 노드별로 **약 8ms 단위로 묶어** 전송한다(대량 출력 시 IPC 폭주 방지).
+- 같은 노드 id로 `open`이 다시 오면 이전 PTY를 정리하고 갈아끼운다. **교체된 PTY의 뒤늦은 data/exit 이벤트는 버린다** — id만 보고 처리하면 새 세션을 죽인다(단계 1에서 실제로 발생).
 
 ---
 
@@ -544,7 +555,7 @@ interface Api {
 ### 14.3 수동 인수 테스트
 12.1의 각 단계 완료 기준을 체크리스트로 `HANDOVER.md`에 기록하고 체크한다.
 
-기계로 확인할 수 있는 항목은 `npm run verify:renderer`(`scripts/inspect-renderer.mjs`)로 대신한다. 개발 앱을 Chrome DevTools Protocol 원격 디버깅 포트와 함께 띄워 렌더러에 직접 질의하고(창·React 마운트·`window.api`·Node 격리·콘솔 오류·node-pty 로드) 확인 후 종료한다. macOS 손쉬운 사용/화면 기록 권한이 필요 없고, 스크린샷과 달리 렌더 성공 여부를 판정할 수 있다.
+기계로 확인할 수 있는 항목은 `npm run verify:renderer`(`scripts/inspect-renderer.mjs`)와 `npm run verify:terminal`(`scripts/check-terminal.mjs`)로 대신한다. 앞의 것은 렌더러가 제대로 떴는지를, 뒤의 것은 터미널 기능(키 입력 전달, 한글 출력·전각 폭, IME 조합 입력, 트루컬러, 리사이즈 전달, PATH 해석, TUI)을 확인한다. 개발 앱을 Chrome DevTools Protocol 원격 디버깅 포트와 함께 띄워 렌더러에 직접 질의하고(창·React 마운트·`window.api`·Node 격리·콘솔 오류·node-pty 로드) 확인 후 종료한다. macOS 손쉬운 사용/화면 기록 권한이 필요 없고, 스크린샷과 달리 렌더 성공 여부를 판정할 수 있다.
 
 > ⚠️ 원격 디버깅 포트는 이 확인 중에만 열고(127.0.0.1 바인딩) 바로 닫는다. **`npm run dev`에는 절대 넣지 않는다** — 그 포트에 접근할 수 있는 누구나 렌더러에서 임의 JS를 실행할 수 있다.
 
@@ -556,3 +567,4 @@ interface Api {
 | v0.1 | 2026-09-20 | 초안. Electron + React Flow + xterm.js + node-pty + tmux 구조 확정, hooks 기반 상태 감지 설계, 단계 0~6 정의 |
 | v0.1.1 | 2026-09-20 | 단계 0 진행 중 수정: §0.1의 "14장 변경 이력" → "15장 변경 이력"(14장은 테스트, 변경 이력은 15장). §4.2에 없지만 골격에 필요한 파일(`src/renderer/index.html`, `src/renderer/main.tsx`, `src/renderer/index.css`, `vitest.config.ts`, `electron-builder.yml`, `eslint.config.mjs`, `build/`)을 추가. 렌더러 소스는 electron-vite 템플릿의 `src/renderer/src/` 대신 §4.2대로 `src/renderer/` 바로 아래에 둔다 |
 | v0.1.2 | 2026-09-20 | §4.2에 `scripts/inspect-renderer.mjs` 추가, §14.3에 CDP 기반 렌더러 스모크 확인 절차와 원격 디버깅 포트 주의사항 명시 |
+| v0.1.3 | 2026-09-20 | 단계 1 구현 중 개정: §10 `pty.open`이 `TerminalNodeData` 전체 대신 `PtyOpenRequest`(id·cwd·command)를 받는다, 재오픈 시 이전 PTY 이벤트 폐기 규칙 추가. §4.4에 PTY 환경변수(`TERM`·`COLORTERM`·`LANG`) 규칙 추가. §4.2·§14.3에 `scripts/check-terminal.mjs`와 `scripts/lib/cdp.mjs` 추가 |

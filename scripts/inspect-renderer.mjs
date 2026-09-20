@@ -1,264 +1,164 @@
 #!/usr/bin/env node
 /**
- * Renderer smoke check (SPEC 12.1 단계 0 완료 기준).
+ * 렌더러 스모크 점검 (SPEC 14.3).
  *
- * Starts the dev app with Chrome DevTools Protocol enabled, asks the live page
- * what it actually rendered, and reports console errors / exceptions. Needs no
- * macOS Accessibility permission and no screen capture, unlike osascript or
- * `screencapture`, and unlike a screenshot it can tell whether React mounted.
+ * 개발 앱을 CDP 원격 디버깅 포트와 함께 띄워, 살아 있는 페이지에 직접 물어본다:
+ * 창이 떴는지, React가 마운트됐는지, 스타일이 먹었는지, preload 브리지가
+ * 노출됐는지, 렌더러에 Node 접근이 없는지(SPEC 11), 콘솔 오류가 없는지.
  *
- *   node scripts/inspect-renderer.mjs             # start dev, check, shut down
- *   node scripts/inspect-renderer.mjs --attach    # check an already running dev
- *   node scripts/inspect-renderer.mjs --port 9333 # use another debugging port
- *   node scripts/inspect-renderer.mjs --keep      # leave the app running
+ *   npm run verify:renderer
+ *   node scripts/inspect-renderer.mjs --attach      # 이미 떠 있는 앱에 붙기
+ *   node scripts/inspect-renderer.mjs --keep        # 점검 후 앱을 끄지 않음
+ *   node scripts/inspect-renderer.mjs --port 9333
+ *   node scripts/inspect-renderer.mjs --verbose     # dev 로그 그대로 출력
  *
- * Exits 0 when every check passes, 1 otherwise.
- *
- * SECURITY: the remote debugging port lets anything that can reach it run
- * arbitrary JS in the renderer. It is opened only for this check, bound to
- * 127.0.0.1, and closed again. Never enable it in `npm run dev`.
+ * 모두 통과하면 0, 아니면 1로 끝난다.
  */
-import { spawn } from 'node:child_process'
-import { dirname, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import {
+  collectProblems,
+  connect,
+  createReporter,
+  parseArgs,
+  sleep,
+  portInUse,
+  startDevApp,
+  stopDevApp,
+  waitForPageTarget
+} from './lib/cdp.mjs'
 
-const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const options = parseArgs(process.argv.slice(2))
+const READY_TIMEOUT_MS = 10_000
 
-const argv = process.argv.slice(2)
-const attach = argv.includes('--attach')
-const keep = argv.includes('--keep')
-const portIndex = argv.indexOf('--port')
-const port = portIndex === -1 ? 9222 : Number(argv[portIndex + 1])
-const verbose = argv.includes('--verbose')
-
-const STARTUP_TIMEOUT_MS = 90_000
-const MOUNT_TIMEOUT_MS = 10_000
-
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
-
-/** The page-side expression. Keep it JSON-serializable. */
-const PROBE = `JSON.stringify({
-  title: document.title,
-  url: location.href,
-  rootChildren: document.querySelectorAll('#root > *').length,
-  hasAppDiv: !!document.querySelector('div.app'),
-  bodyBackground: getComputedStyle(document.body).backgroundColor,
-  apiType: typeof window.api,
-  requireType: typeof window.require,
-  processType: typeof window.process
-})`
-
-function startDevApp() {
-  const child = spawn(
-    process.execPath,
-    [
-      resolve(repoRoot, 'node_modules/electron-vite/bin/electron-vite.js'),
-      'dev',
-      '--',
-      `--remote-debugging-port=${port}`
-    ],
-    {
-      cwd: repoRoot,
-      // Own process group, so we can take the Electron children down with us.
-      detached: true,
-      stdio: ['ignore', 'pipe', 'pipe']
+/** 페이지 안에서 평가할 식. JSON으로 직렬화할 수 있어야 한다. */
+const PROBE = `JSON.stringify((() => {
+  const terminals = (window.__sessionCanvas && window.__sessionCanvas.terminals) || {}
+  const term = Object.values(terminals)[0]
+  let terminal = null
+  if (term) {
+    const buffer = term.buffer.active
+    const lines = []
+    for (let i = 0; i < buffer.length; i++) {
+      const line = buffer.getLine(i)
+      const text = line ? line.translateToString(true) : ''
+      if (text) lines.push(text)
     }
-  )
-  const mainLog = []
-  const collect = (chunk) => {
-    const text = String(chunk)
-    mainLog.push(text)
-    if (verbose) process.stdout.write(text)
-  }
-  child.stdout.on('data', collect)
-  child.stderr.on('data', collect)
-  return { child, mainLog }
-}
-
-function stopDevApp(child) {
-  if (!child || child.exitCode !== null) return
-  try {
-    process.kill(-child.pid, 'SIGTERM')
-  } catch {
-    /* already gone */
-  }
-}
-
-async function waitForPageTarget() {
-  const deadline = Date.now() + STARTUP_TIMEOUT_MS
-  while (Date.now() < deadline) {
-    try {
-      const res = await fetch(`http://127.0.0.1:${port}/json`)
-      const targets = await res.json()
-      const page = targets.find((t) => t.type === 'page' && t.webSocketDebuggerUrl)
-      if (page) return page
-    } catch {
-      /* devtools endpoint not up yet */
-    }
-    await sleep(500)
-  }
-  throw new Error(
-    `DevTools 타깃을 ${STARTUP_TIMEOUT_MS / 1000}초 안에 찾지 못했습니다 (port ${port}).` +
-      (attach ? ' --attach 모드입니다. 앱이 그 포트로 떠 있는지 확인하세요.' : '')
-  )
-}
-
-/** Minimal CDP client over the built-in WebSocket (Node 22+), no dependencies. */
-function connect(url) {
-  const ws = new WebSocket(url)
-  const pending = new Map()
-  const events = []
-  let nextId = 0
-
-  ws.onmessage = (event) => {
-    const message = JSON.parse(event.data)
-    if (message.id !== undefined) {
-      const entry = pending.get(message.id)
-      if (!entry) return
-      pending.delete(message.id)
-      if (message.error) entry.reject(new Error(message.error.message))
-      else entry.resolve(message.result)
-      return
-    }
-    events.push(message)
-  }
-
-  const ready = new Promise((res, rej) => {
-    ws.onopen = res
-    ws.onerror = () => rej(new Error('DevTools 웹소켓 연결에 실패했습니다'))
-  })
-
-  const send = (method, params = {}) =>
-    new Promise((resolve, reject) => {
-      const id = ++nextId
-      pending.set(id, { resolve, reject })
-      ws.send(JSON.stringify({ id, method, params }))
-    })
-
-  return { ready, send, events, close: () => ws.close() }
-}
-
-function collectProblems(events) {
-  const problems = []
-  for (const event of events) {
-    if (event.method === 'Runtime.exceptionThrown') {
-      const details = event.params.exceptionDetails
-      problems.push(`예외: ${details.exception?.description ?? details.text}`)
-    }
-    if (event.method === 'Log.entryAdded') {
-      const entry = event.params.entry
-      if (entry.level === 'error' || entry.level === 'warning') {
-        problems.push(`[${entry.level}] ${entry.text}`)
-      }
-    }
-    if (event.method === 'Runtime.consoleAPICalled' && event.params.type === 'error') {
-      const text = event.params.args.map((a) => a.description ?? a.value).join(' ')
-      problems.push(`console.error: ${text}`)
+    terminal = {
+      cols: term.cols,
+      rows: term.rows,
+      unicodeVersion: term.unicode.activeVersion,
+      text: lines.join('\\n')
     }
   }
-  return problems
-}
+  return {
+    title: document.title,
+    rootChildren: document.querySelectorAll('#root > *').length,
+    hasAppDiv: !!document.querySelector('div.app'),
+    bodyBackground: getComputedStyle(document.body).backgroundColor,
+    apiType: typeof window.api,
+    requireType: typeof window.require,
+    processType: typeof window.process,
+    terminal
+  }
+})())`
 
-async function probeUntilMounted(send) {
-  const deadline = Date.now() + MOUNT_TIMEOUT_MS
+/**
+ * 고정 대기 대신 폴링한다. React가 마운트되고, PTY가 셸 프롬프트를 찍기까지
+ * 시간이 걸린다. 둘 다 끝나면 바로 돌아온다.
+ */
+async function probeUntilReady(evaluate) {
+  const deadline = Date.now() + READY_TIMEOUT_MS
   let snapshot
   while (Date.now() < deadline) {
-    const { result } = await send('Runtime.evaluate', {
-      expression: PROBE,
-      returnByValue: true
-    })
-    snapshot = JSON.parse(result.value)
-    if (snapshot.rootChildren > 0) return snapshot
+    snapshot = JSON.parse(await evaluate(PROBE))
+    const mounted = snapshot.rootChildren > 0
+    const terminalReady = snapshot.terminal === null || snapshot.terminal.text.length > 0
+    if (mounted && terminalReady) return snapshot
     await sleep(250)
   }
   return snapshot
 }
 
 function report(snapshot, problems, mainLog) {
-  // SPEC 11 (격리), 12.1 단계 0 (빈 창), 13 R5 (node-pty).
-  const checks = [
-    ['창이 떠 있고 렌더러가 로드됨', Boolean(snapshot?.title), `title="${snapshot?.title ?? ''}"`],
-    [
-      'React가 #root에 마운트됨',
-      snapshot?.rootChildren > 0,
-      `#root 자식 ${snapshot?.rootChildren}개`
-    ],
-    ['App이 렌더됨 (div.app)', snapshot?.hasAppDiv === true, String(snapshot?.hasAppDiv)],
-    [
-      '스타일 적용됨 (CSP가 막지 않음)',
-      Boolean(snapshot?.bodyBackground),
-      snapshot?.bodyBackground
-    ],
-    ['preload 브리지 노출됨 (window.api)', snapshot?.apiType === 'object', snapshot?.apiType],
-    [
-      '렌더러에 Node 접근 없음 (SPEC 11)',
-      snapshot?.requireType === 'undefined' && snapshot?.processType === 'undefined',
-      `require=${snapshot?.requireType}, process=${snapshot?.processType}`
-    ],
-    ['콘솔 오류·CSP 위반 없음', problems.length === 0, `${problems.length}건`],
-    [
-      'node-pty 로드됨 (SPEC 13 R5)',
-      mainLog === null || /node-pty loaded, spawn is function/.test(mainLog),
-      mainLog === null ? '--attach 모드: 확인 생략' : 'main 프로세스 로그'
-    ]
-  ]
+  const reporter = createReporter('렌더러 점검')
+  const s = snapshot ?? {}
 
-  console.log('')
-  let failed = 0
-  for (const [label, ok, detail] of checks) {
-    const skipped = label.includes('node-pty') && mainLog === null
-    if (skipped) {
-      console.log(`  -  ${label} — ${detail}`)
-      continue
-    }
-    if (!ok) failed += 1
-    console.log(`  ${ok ? '✅' : '❌'} ${label} — ${detail}`)
+  reporter.check('창이 떠 있고 렌더러가 로드됨', Boolean(s.title), `title="${s.title ?? ''}"`)
+  reporter.check('React가 #root에 마운트됨', s.rootChildren > 0, `#root 자식 ${s.rootChildren}개`)
+  reporter.check('App이 렌더됨 (div.app)', s.hasAppDiv === true, String(s.hasAppDiv))
+  reporter.check('스타일 적용됨 (CSP가 막지 않음)', Boolean(s.bodyBackground), s.bodyBackground)
+  reporter.check('preload 브리지 노출됨 (window.api)', s.apiType === 'object', s.apiType)
+  reporter.check(
+    '렌더러에 Node 접근 없음 (SPEC 11)',
+    s.requireType === 'undefined' && s.processType === 'undefined',
+    `require=${s.requireType}, process=${s.processType}`
+  )
+  reporter.check('콘솔 오류·CSP 위반 없음', problems.length === 0, `${problems.length}건`)
+
+  if (mainLog === null) {
+    reporter.skip('로그인 셸 환경 확보 (SPEC 4.4)', '--attach 모드: 확인 생략')
+  } else {
+    reporter.check(
+      '로그인 셸 환경 확보 (SPEC 4.4)',
+      /login env resolved, PATH entries: [1-9]/.test(mainLog),
+      /PATH entries: \d+/.exec(mainLog)?.[0] ?? '로그 없음'
+    )
   }
+
+  // 터미널이 붙은 뒤(단계 1~)에만 확인한다.
+  if (s.terminal) {
+    const { cols, rows, unicodeVersion, text } = s.terminal
+    reporter.check(
+      'PTY가 열리고 셸 출력이 도착함 (node-pty)',
+      text.length > 0,
+      `${text.length}자 수신`
+    )
+    reporter.check('fit으로 크기가 잡힘', cols > 20 && rows > 5, `${cols}×${rows}`)
+    reporter.check(
+      'unicode11 활성화 (SPEC 6.1)',
+      unicodeVersion === '11',
+      `version ${unicodeVersion}`
+    )
+  }
+
   if (problems.length > 0) {
     console.log('\n  렌더러 로그:')
     for (const problem of problems) console.log(`    · ${problem}`)
   }
-  console.log('')
-  return failed
+  return reporter.finish()
 }
 
-async function main() {
-  let dev = null
-  if (!attach) {
-    dev = startDevApp()
-  }
-
-  try {
-    const target = await waitForPageTarget()
-    const client = connect(target.webSocketDebuggerUrl)
-    await client.ready
-
-    // Enable before reloading, so nothing that happens during load is missed.
-    await client.send('Log.enable')
-    await client.send('Runtime.enable')
-    await client.send('Page.enable')
-    await client.send('Page.reload', { ignoreCache: true })
-    await sleep(1500)
-
-    const snapshot = await probeUntilMounted(client.send)
-    const problems = collectProblems(client.events)
-    client.close()
-
-    const failed = report(snapshot, problems, dev ? dev.mainLog.join('') : null)
-    if (failed > 0) {
-      console.log(`실패한 확인 항목 ${failed}개.`)
-      process.exitCode = 1
-    } else {
-      console.log('모든 확인 항목 통과.')
+let dev = null
+try {
+  if (!options.attach) {
+    if (await portInUse(options.port)) {
+      throw new Error(
+        `포트 ${options.port}에 이미 앱이 떠 있습니다. 그 앱을 점검하려면 --attach, ` +
+          '새로 띄우려면 --port 로 다른 포트를 쓰세요.'
+      )
     }
-  } catch (error) {
-    console.error(`\n❌ ${error.message}\n`)
-    if (dev && !verbose) console.error(dev.mainLog.join(''))
-    process.exitCode = 1
-  } finally {
-    if (dev && !keep) stopDevApp(dev.child)
-    else if (dev && keep) console.log(`앱을 그대로 둡니다 (pid ${dev.child.pid}).`)
+    dev = startDevApp(options)
   }
-}
 
-await main()
+  const target = await waitForPageTarget(options)
+  const client = await connect(target)
+
+  // enable 이전에 난 오류는 오지 않는다. 켠 다음 reload해서 처음부터 다시 잡는다.
+  await client.send('Log.enable')
+  await client.send('Runtime.enable')
+  await client.send('Page.enable')
+  await client.send('Page.reload', { ignoreCache: true })
+  await sleep(1500)
+
+  const snapshot = await probeUntilReady(client.evaluate)
+  const problems = collectProblems(client.events)
+  client.close()
+
+  process.exitCode = report(snapshot, problems, dev ? dev.mainLog.join('') : null) > 0 ? 1 : 0
+} catch (error) {
+  console.error(`\n❌ ${error.message}\n`)
+  if (dev && !options.verbose) console.error(dev.mainLog.join(''))
+  process.exitCode = 1
+} finally {
+  if (dev && !options.keep) stopDevApp(dev.child)
+  else if (dev) console.log(`앱을 그대로 둡니다 (pid ${dev.child.pid}).`)
+}
