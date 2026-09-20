@@ -1,0 +1,12 @@
+out
+dist
+coverage
+build
+package-lock.json
+tsconfig.json
+tsconfig.*.json
+
+# Canonical documents: never reformat automatically.
+SPEC.md
+HANDOVER.md
+README.md

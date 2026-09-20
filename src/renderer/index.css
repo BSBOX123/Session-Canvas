@@ -1,0 +1,27 @@
+:root {
+  --bg: #14161a;
+  --fg: #e6e8eb;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Pretendard', sans-serif;
+  overflow: hidden;
+}
+
+.app {
+  height: 100%;
+}
