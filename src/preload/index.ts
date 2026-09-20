@@ -23,6 +23,9 @@ const api: Api = {
     kill: (id) => ipcRenderer.invoke(CHANNELS.ptyKill, id),
     onData: (cb) => subscribe<[NodeId, string]>(CHANNELS.ptyData, cb),
     onExit: (cb) => subscribe<[NodeId, number]>(CHANNELS.ptyExit, cb)
+  },
+  dialog: {
+    pickDirectory: () => ipcRenderer.invoke(CHANNELS.dialogPickDirectory)
   }
 }
 

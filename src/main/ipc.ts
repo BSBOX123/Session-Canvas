@@ -3,9 +3,10 @@
  */
 import { statSync } from 'node:fs'
 import { isAbsolute } from 'node:path'
-import { BrowserWindow, ipcMain, type IpcMainInvokeEvent } from 'electron'
+import { BrowserWindow, dialog, ipcMain, type IpcMainInvokeEvent } from 'electron'
 import { CHANNELS, type PtyOpenRequest } from '../shared/ipc'
 import { MAX_COMMAND_LENGTH, NODE_ID_PATTERN, type NodeId } from '../shared/types'
+import type { OpenDialogOptions } from 'electron'
 import type { PtyManager } from './pty/PtyManager'
 
 /** cols/rows의 상한. 터무니없는 값으로 PTY를 흔들지 못하게 한다. */
@@ -52,7 +53,7 @@ function assertOpenRequest(value: unknown): PtyOpenRequest {
   return { id, cwd, command }
 }
 
-export function registerIpcHandlers(pty: PtyManager): void {
+export function registerIpcHandlers(pty: PtyManager, getWindow: () => BrowserWindow | null): void {
   ipcMain.handle(
     CHANNELS.ptyOpen,
     (_event: IpcMainInvokeEvent, req: unknown, cols: unknown, rows: unknown) => {
@@ -75,6 +76,19 @@ export function registerIpcHandlers(pty: PtyManager): void {
 
   ipcMain.handle(CHANNELS.ptyKill, (_event, id: unknown) => {
     pty.kill(assertNodeId(id))
+  })
+
+  ipcMain.handle(CHANNELS.dialogPickDirectory, async () => {
+    const win = getWindow()
+    const options: OpenDialogOptions = {
+      properties: ['openDirectory', 'createDirectory'],
+      title: '작업 폴더 선택'
+    }
+    const result =
+      win === null
+        ? await dialog.showOpenDialog(options)
+        : await dialog.showOpenDialog(win, options)
+    return result.canceled ? null : (result.filePaths[0] ?? null)
   })
 }
 

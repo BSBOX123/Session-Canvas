@@ -17,6 +17,7 @@
  *
  * 모두 통과하면 0, 아니면 1로 끝난다.
  */
+import { homedir } from 'node:os'
 import {
   connect,
   createReporter,
@@ -29,8 +30,9 @@ import {
 } from './lib/cdp.mjs'
 
 const options = parseArgs(process.argv.slice(2))
-const NODE_ID = 'main'
-const TERM = `window.__sessionCanvas.terminals[${JSON.stringify(NODE_ID)}]`
+/** 노드 id는 nanoid라 실행할 때마다 다르다. 부트스트랩에서 정해진다. */
+let NODE_ID = ''
+let TERM = ''
 
 let dev = null
 try {
@@ -90,13 +92,27 @@ try {
     await send('Input.dispatchKeyEvent', { type: 'keyUp', ...base })
   }
 
-  // 렌더러가 터미널을 만들 때까지 기다린다. 앱이 막 뜬 직후에는 아직 없다.
+  // 개발 브리지가 설치될 때까지 기다렸다가, 점검용 노드를 하나 만든다.
+  const bridgeDeadline = Date.now() + 30_000
+  while (!(await evaluate('!!window.__sessionCanvas'))) {
+    if (Date.now() > bridgeDeadline) throw new Error('타임아웃: 개발 브리지(SPEC 14.3)가 없습니다')
+    await sleep(250)
+  }
+  NODE_ID = await evaluate(`(() => {
+    const bridge = window.__sessionCanvas
+    const existing = bridge.nodes[0]
+    if (existing) return existing.id
+    return bridge.addNode({
+      cwd: ${JSON.stringify(homedir())},
+      title: '점검',
+      command: null,
+      position: { x: 0, y: 0 }
+    })
+  })()`)
+  TERM = `window.__sessionCanvas.terminals[${JSON.stringify(NODE_ID)}]`
+
   const terminalDeadline = Date.now() + 30_000
-  for (;;) {
-    const ready = await evaluate(
-      `!!(window.__sessionCanvas && window.__sessionCanvas.terminals && ${TERM})`
-    )
-    if (ready) break
+  while (!(await evaluate(`!!${TERM}`))) {
     if (Date.now() > terminalDeadline) throw new Error('타임아웃: 터미널이 만들어지지 않았습니다')
     await sleep(250)
   }
@@ -180,7 +196,9 @@ try {
 
   // 6. 리사이즈 → fit → pty.resize 가 셸까지
   const before = await evaluate(`({ cols: ${TERM}.cols, rows: ${TERM}.rows })`)
-  await evaluate(`(document.querySelector('.app').style.width = '700px', 1)`)
+  await evaluate(
+    `(window.__sessionCanvas.updateNode(${JSON.stringify(NODE_ID)}, { size: { width: 420, height: 300 } }), 1)`
+  )
   await sleep(1200)
   const after = await evaluate(`({ cols: ${TERM}.cols, rows: ${TERM}.rows })`)
   const shellCols = await run('tput cols')
@@ -194,7 +212,9 @@ try {
     Number(shellCols.trim()) === after.cols,
     `셸이 보는 cols=${shellCols.trim()}, xterm cols=${after.cols}`
   )
-  await evaluate(`(document.querySelector('.app').style.width = '', 1)`)
+  await evaluate(
+    `(window.__sessionCanvas.updateNode(${JSON.stringify(NODE_ID)}, { size: { width: 900, height: 560 } }), 1)`
+  )
   await sleep(1000)
 
   // 7. 로그인 셸 PATH로 claude를 찾는지 (SPEC 4.4)

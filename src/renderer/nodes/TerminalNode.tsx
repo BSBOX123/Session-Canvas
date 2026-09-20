@@ -1,0 +1,54 @@
+import { memo, useCallback } from 'react'
+import { NodeResizer, useReactFlow, type NodeProps, type Node } from '@xyflow/react'
+import type { TerminalNodeData } from '@shared/types'
+import { MIN_NODE_SIZE, useWorkspace } from '../state/workspace'
+import { dispose, fitAndResize, focus } from '../terminal/TerminalRegistry'
+import XtermView from '../terminal/XtermView'
+import NodeHeader from './NodeHeader'
+import NodeDescription from './NodeDescription'
+
+export type TerminalFlowNode = Node<{ node: TerminalNodeData }, 'terminal'>
+
+/**
+ * 캔버스 위의 터미널 노드 (SPEC 7.1).
+ * 헤더로만 드래그하고, 터미널 영역은 캔버스 조작에서 뺀다.
+ */
+function TerminalNode({ data, selected }: NodeProps<TerminalFlowNode>): React.JSX.Element {
+  const { node } = data
+  const removeNode = useWorkspace((s) => s.removeNode)
+  const updateNode = useWorkspace((s) => s.updateNode)
+  const { setCenter } = useReactFlow()
+
+  const zoomToNode = useCallback(() => {
+    // SPEC 7.3: 노드가 화면에 들어오도록 줌 1.0으로 이동한 뒤 포커스.
+    void setCenter(node.position.x + node.size.width / 2, node.position.y + node.size.height / 2, {
+      zoom: 1,
+      duration: 200
+    }).then(() => focus(node.id))
+  }, [node.id, node.position.x, node.position.y, node.size.width, node.size.height, setCenter])
+
+  const close = useCallback(() => {
+    dispose(node.id)
+    removeNode(node.id)
+  }, [node.id, removeNode])
+
+  return (
+    <div className="terminal-node" onMouseDown={() => focus(node.id)}>
+      <NodeResizer
+        isVisible={selected === true}
+        minWidth={MIN_NODE_SIZE.width}
+        minHeight={MIN_NODE_SIZE.height}
+        onResize={(_event, params) => {
+          updateNode(node.id, { size: { width: params.width, height: params.height } })
+        }}
+        // 리사이즈가 끝나면 fit → pty.resize (SPEC 7.1).
+        onResizeEnd={() => fitAndResize(node.id)}
+      />
+      <NodeHeader node={node} onZoomToNode={zoomToNode} onClose={close} />
+      <NodeDescription node={node} />
+      <XtermView node={node} />
+    </div>
+  )
+}
+
+export default memo(TerminalNode)

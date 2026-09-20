@@ -65,7 +65,7 @@ app.whenReady().then(async () => {
     onData: (id, data) => forward(CHANNELS.ptyData, id, data),
     onExit: (id, code) => forward(CHANNELS.ptyExit, id, code)
   })
-  registerIpcHandlers(ptyManager)
+  registerIpcHandlers(ptyManager, () => mainWindow)
 
   createWindow()
 

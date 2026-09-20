@@ -128,7 +128,8 @@ session-canvas/
 ├─ scripts/
 │  ├─ lib/cdp.mjs                    # CDP 점검 공용 도구 (14.3)
 │  ├─ inspect-renderer.mjs           # 렌더러 스모크 확인 (14.3)
-│  └─ check-terminal.mjs             # 터미널 기능 확인 (14.3)
+│  ├─ check-terminal.mjs             # 터미널 기능 확인 (14.3)
+│  └─ check-canvas.mjs               # 캔버스·다중 노드 확인 (14.3)
 ├─ src/
 │  ├─ shared/
 │  │  ├─ types.ts                    # 9장 데이터 모델
@@ -152,6 +153,9 @@ session-canvas/
 │     ├─ canvas/Canvas.tsx
 │     ├─ nodes/TerminalNode.tsx
 │     ├─ nodes/NodeHeader.tsx
+│     ├─ nodes/NodeDescription.tsx
+│     ├─ nodes/NewNodeDialog.tsx     # 7.2
+│     ├─ devBridge.ts                # 개발 모드 점검 훅 (14.3)
 │     ├─ terminal/TerminalRegistry.ts
 │     ├─ terminal/XtermView.tsx
 │     ├─ state/workspace.ts
@@ -278,6 +282,7 @@ React 노드가 언마운트되어도 터미널 버퍼가 사라지면 안 된�
 - **설명**: 여러 줄 평문. 접힌 상태에서는 최대 2줄 + 말줄임, 클릭하면 편집.
 - **드래그는 헤더로만** (React Flow `dragHandle`). 터미널 영역에는 `nodrag nowheel nopan` 클래스를 붙여 캔버스 조작과 충돌하지 않게 한다.
 - 리사이즈: React Flow `NodeResizer`, 최소 360×220px. 리사이즈 종료 시 fit → `pty.resize`.
+  - `NodeResizer`는 노드가 **선택됐을 때만** 핸들을 보여준다. React Flow를 제어 모드로 쓰면 선택 상태도 앱이 들고 있어야 한다 — 안 그러면 핸들이 영영 안 나타난다. 선택은 화면 상태라 `workspace.json`에는 넣지 않는다.
 - 색 라벨(선택): 헤더 좌측 띠 색. 단계 6.
 
 ### 7.2 노드 생성
@@ -304,6 +309,8 @@ CSS transform으로 확대·축소된 터미널은 글자가 뭉개지므로, �
 
 ### 7.5 키보드 단축키
 **원칙: 포커스된 터미널에는 모든 키를 그대로 넘긴다.** 앱 단축키는 `Cmd` 조합만 쓴다. `Esc`, `Shift+Tab`, `Ctrl+*`, `Option+*`은 절대 가로채지 않는다(Claude Code가 사용).
+
+> ⚠️ React Flow의 기본 `deleteKeyCode`는 `Backspace`다. 그대로 두면 터미널에서 백스페이스를 칠 때 노드가 삭제된다. `deleteKeyCode={null}`로 비워 둔다.
 
 | 키 | 동작 |
 |---|---|
@@ -568,3 +575,4 @@ type PtyOpenRequest = Pick<TerminalNodeData, 'id' | 'command'> & { cwd: string |
 | v0.1.1 | 2026-09-20 | 단계 0 진행 중 수정: §0.1의 "14장 변경 이력" → "15장 변경 이력"(14장은 테스트, 변경 이력은 15장). §4.2에 없지만 골격에 필요한 파일(`src/renderer/index.html`, `src/renderer/main.tsx`, `src/renderer/index.css`, `vitest.config.ts`, `electron-builder.yml`, `eslint.config.mjs`, `build/`)을 추가. 렌더러 소스는 electron-vite 템플릿의 `src/renderer/src/` 대신 §4.2대로 `src/renderer/` 바로 아래에 둔다 |
 | v0.1.2 | 2026-09-20 | §4.2에 `scripts/inspect-renderer.mjs` 추가, §14.3에 CDP 기반 렌더러 스모크 확인 절차와 원격 디버깅 포트 주의사항 명시 |
 | v0.1.3 | 2026-09-20 | 단계 1 구현 중 개정: §10 `pty.open`이 `TerminalNodeData` 전체 대신 `PtyOpenRequest`(id·cwd·command)를 받는다, 재오픈 시 이전 PTY 이벤트 폐기 규칙 추가. §4.4에 PTY 환경변수(`TERM`·`COLORTERM`·`LANG`) 규칙 추가. §4.2·§14.3에 `scripts/check-terminal.mjs`와 `scripts/lib/cdp.mjs` 추가 |
+| v0.1.4 | 2026-09-20 | 단계 2 구현 중 개정: §7.1에 `NodeResizer`의 선택 상태 요구사항, §7.5에 React Flow `deleteKeyCode` 주의 추가. §4.2에 `nodes/NodeDescription.tsx`·`nodes/NewNodeDialog.tsx`·`devBridge.ts`·`scripts/check-canvas.mjs` 추가 |

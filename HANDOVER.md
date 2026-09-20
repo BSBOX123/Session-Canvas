@@ -4,7 +4,7 @@
 > 정본 명세는 `SPEC.md`.
 
 - 최종 갱신: 2026-09-20
-- 현재 단계: **단계 1 (단일 터미널) 완료.** 다음은 단계 2(캔버스·다중 노드).
+- 현재 단계: **단계 2 (캔버스·다중 노드) 완료.** 다음은 단계 3(tmux·영속성).
 
 ---
 
@@ -14,7 +14,7 @@
 |---|---|---|
 | 0 골격 | ✅ 완료 (2026-09-20) | electron-vite(react-ts), TS strict, ESLint+Prettier, vitest, node-pty + Electron 재빌드 |
 | 1 단일 터미널 | ✅ 완료 (2026-09-20) | xterm + node-pty(직접 zsh), LoginEnv, fit·unicode11·clipboard·web-links |
-| 2 캔버스·다중 노드 | ⬜ 미착수 | |
+| 2 캔버스·다중 노드 | ✅ 완료 (2026-09-20) | React Flow, TerminalNode, TerminalRegistry, 생성 대화상자, zustand |
 | 3 tmux·영속성 | ⬜ 미착수 | |
 | 4 상태 감지 | ⬜ 미착수 | |
 | 5 줌 단계·성능 | ⬜ 미착수 | |
@@ -33,7 +33,13 @@
 - 창 하나에 터미널 하나가 뜨고, zsh가 로그인 셸 환경(PATH 37개 항목)으로 돈다.
 - 입력 → `xterm.onData` → IPC → node-pty, 출력 → node-pty → 8ms 묶음 → IPC → `xterm.write`.
 - 창 크기 변경 → `ResizeObserver` → fit → `pty.resize` → 셸의 `COLUMNS`까지 반영.
-- `npm run verify:terminal` → 터미널 기능 9개 항목 자동 점검.
+- 무한 캔버스 위에 터미널 노드를 여러 개 만들고 옮기고 크기를 바꾼다. 노드마다 독립된 PTY.
+- 헤더 드래그로만 이동, 터미널 영역은 캔버스 조작에서 제외(`nodrag nowheel nopan`).
+- 제목·설명 인라인 편집, 빈 제목은 폴더명으로 표시.
+- `Cmd+N` 또는 빈 캔버스 더블클릭 → 생성 대화상자(폴더 선택·제목·명령).
+- 두 손가락 스크롤 = 팬, 핀치 = 줌 (SPEC 7.4). 미니맵·컨트롤 표시.
+- 노드 닫기는 헤더 `×` → 인라인 확인. **네이티브 `confirm`은 쓰지 않는다**(렌더러가 멈춰 CDP 점검도 막힌다).
+- 점검: `npm run verify:renderer` / `verify:terminal`(9항목) / `verify:canvas`(12항목).
 
 ### 단계 0 완료 기준 체크리스트 (SPEC 12.1)
 
@@ -59,6 +65,20 @@
 - [x] 트루컬러 — `\033[38;2;255;100;0m` → 셀이 RGB 모드 `#ff6400`
 - [x] `npm test`(16) / `npm run lint` / `npm run typecheck` / `prettier --check` 통과
 
+### 단계 2 완료 기준 체크리스트 (SPEC 12.1)
+
+`npm run verify:canvas`로 자동 확인(12/12 통과, 3회 연속 재현):
+
+- [x] 노드 3개 이상 동시 동작 — 3개 생성, 각자 프롬프트 출력
+- [x] 노드별 PTY 독립 — 각 노드에 다른 마커를 보내 서로 섞이지 않음을 확인
+- [x] 드래그 중 터미널 입력과 충돌 없음 — 헤더 드래그는 이동, 터미널 영역 드래그는 이동 없음
+- [x] 리사이즈 — 핸들 드래그 → fit → `pty.resize` → 셸 `tput cols`까지 일치
+- [x] 캔버스를 팬/줌해도 터미널 내용 유지 — 버퍼 문자열 동일
+- [x] Esc가 Claude Code에 전달됨 — `cat -v`가 `^[` 수신
+- [x] Shift+Tab이 전달됨 — `cat -v`가 `^[[Z` 수신
+- [x] 노드 닫기 → 노드·터미널·PTY 정리
+- [x] `npm test`(21) / `lint` / `typecheck` / `prettier --check` 통과
+
 ---
 
 ## 3. 13장 R 항목 확인 결과
@@ -80,24 +100,44 @@
 
 ---
 
-## 5. 다음에 할 일 (단계 2)
+## 5. 다음에 할 일 (단계 3)
 
-SPEC 12.1 단계 2 — 캔버스와 다중 노드. PTY는 아직 tmux 없이 직접 spawn.
+SPEC 12.1 단계 3 — tmux와 영속성. **`brew install tmux` 가 선행 조건이다** (아직 미설치).
 
-- `@xyflow/react` 도입, `src/renderer/canvas/Canvas.tsx`
-- `src/renderer/nodes/TerminalNode.tsx`, `nodes/NodeHeader.tsx` — 헤더 드래그(`dragHandle`), 터미널 영역에 `nodrag nowheel nopan`
-- `src/renderer/terminal/TerminalRegistry.ts` — **SPEC 6.4: 언마운트돼도 `dispose`하지 않는다.** `terminal.open(hostEl)`은 최초 1회만
-- 노드 생성 대화상자(SPEC 7.2) — `dialog.pickDirectory()`가 필요하니 SPEC 10의 `dialog` API를 이때 붙인다
-- 제목·설명 인라인 편집, `src/renderer/state/workspace.ts` (zustand)
-- 완료 기준: 노드 3개 이상 동시 동작 · 드래그/리사이즈 중 입력 충돌 없음 · 팬/줌해도 터미널 내용 유지 · **Esc / Shift+Tab이 Claude Code에 전달됨**
+- `resources/tmux.conf` (SPEC 5.2) — 옵션이 실제 tmux 버전에서 오류 없이 로드되는지 먼저 확인
+- `src/main/tmux/buildArgs.ts` (순수 함수, **단위 테스트 필수** — SPEC 14.1) + `TmuxService.ts`
+- `PtyManager`가 셸 대신 `tmux new-session -A -s sc-<id> ...`를 띄우도록 교체
+- `src/main/workspace/WorkspaceStore.ts` — `workspace.json` 저장/로드, 500ms 디바운스, 원자적 rename, `.bak` (SPEC 9.2)
+- SPEC 5.4 복구 흐름, 분리된 세션 목록, 닫기(분리) vs 종료(확인 대화상자)
+- 완료 기준: **앱을 강제 종료 후 재실행해도 세션이 그대로** · 레이아웃·제목·설명 복원 · tmux 상태줄 안 보임 · Ctrl+B 그대로 전달 · 휠 스크롤 · 사용자 기본 tmux 서버에 영향 없음
 
 시작 전 확인할 것:
-- 지금 `XtermView`는 마운트마다 `Terminal`을 새로 만들고 언마운트 때 `dispose`한다. 단계 2에서 `TerminalRegistry`로 옮기면서 이 수명 관리를 통째로 바꿔야 한다.
-- `nodeId`는 `'main'` 하드코딩이다. 노드 생성이 생기면 nanoid(10)로 바꾸고 `NODE_ID_PATTERN` 검증을 태운다.
-
----
+- **R2(Shift+Enter 등 확장 키), R4(tmux 안 Claude Code 렌더링)를 이때 확인한다.** 단계 1·2에서 통과한 한글·Esc·Shift+Tab을 tmux를 끼운 뒤 다시 돌려 비교할 것 — `verify:terminal`·`verify:canvas`가 그 비교의 기준선이다.
+- 지금 노드를 닫으면 프로세스가 죽는다. 단계 3부터 닫기는 **분리**이고 tmux 세션은 살아남아야 한다. `TerminalRegistry.dispose`와 헤더 `×`의 의미가 달라진다.
+- 노드 id는 `nanoid(10)`이고 tmux 세션 이름은 `sc-<id>`로 이미 저장되고 있다(`TerminalNodeData.tmuxSession`).
 
 ## 6. 삽질 기록
+
+### 2-1. 노드를 클릭해도 선택되지 않아 리사이즈 핸들이 안 나왔다 ⭐
+증상: `NodeResizer`를 붙였는데 핸들이 아무리 해도 안 보였다.
+
+원인: React Flow를 **제어 모드**(`nodes` prop을 우리 스토어에서 내려줌)로 쓰면서 `onNodesChange`의 `select` 변경을 버리고 있었다. 그래서 `selected`가 영원히 false였고, `isVisible={selected}`인 `NodeResizer`는 영원히 숨어 있었다.
+
+해결: `Canvas`가 `selectedIds`를 들고 `select` 변경을 반영한다. 선택은 화면 상태라 `workspace.json`(SPEC 9.1)에는 넣지 않는다. SPEC 7.1에 못 박았다.
+
+### 2-2. React Flow 기본 `deleteKeyCode`가 Backspace다
+그대로 두면 **터미널에서 백스페이스를 칠 때 노드가 지워진다.** `deleteKeyCode={null}`, `multiSelectionKeyCode={null}`, `selectionKeyCode={null}`로 비웠다. SPEC 7.5에 기록.
+
+### 2-3. 점검 스크립트의 드래그가 한 걸음씩 짧았다
+헤더를 160px 끌었는데 144px만 움직였다. React Flow의 `nodeDragThreshold`가 **첫 이동을 통째로 삼킨다**. 실제 마우스는 1px씩 움직여 티가 안 나지만, 큰 걸음으로 뛰면 그 걸음이 사라진다.
+→ 드래그 시작 직후 1px 이동을 먼저 보내 임계값을 소진한다.
+
+### 2-4. 점검 좌표가 미니맵·노드 위였다
+휠 이벤트를 고정 좌표에 쐈더니 우하단 **미니맵(`zoomable`)** 위였고, 다음엔 노드 위였다. 앱이 아니라 점검이 틀렸다.
+→ `document.elementFromPoint`로 `.react-flow__pane`인 지점을 찾아서 쏜다.
+
+### 2-5. 네이티브 `confirm`을 쓰지 않는 이유
+노드 닫기 확인에 `window.confirm`을 쓰면 렌더러가 멈춰 **CDP 점검 자체가 막힌다**(모달이 모든 이벤트를 삼킨다). 헤더 안 인라인 확인 UI로 대신했다. 대화상자도 같은 이유로 직접 만든다.
 
 ### 1-1. 교체된 PTY의 늦은 exit 이벤트가 새 세션을 죽였다 ⭐
 증상: 앱을 띄우면 프롬프트가 한 번 뜨고 바로 `[프로세스 종료: 0]`이 찍히며 키 입력이 전부 무시됐다.

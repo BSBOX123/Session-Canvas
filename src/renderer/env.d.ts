@@ -1,11 +1,20 @@
 /// <reference types="vite/client" />
 
 import type { Terminal } from '@xterm/xterm'
+import type { NodeId, TerminalNodeData } from '@shared/types'
+import type { NewNodeInput } from './state/workspace'
 
 declare global {
   interface Window {
     /** 개발 모드 전용 점검 훅 (SPEC 14.3). 프로덕션 빌드에는 없다. */
-    __sessionCanvas?: { terminals: Record<string, Terminal> }
+    __sessionCanvas?: {
+      readonly terminals: Record<NodeId, Terminal>
+      readonly nodes: TerminalNodeData[]
+      addNode(input: NewNodeInput): NodeId
+      updateNode(id: NodeId, patch: Partial<TerminalNodeData>): void
+      removeNode(id: NodeId): void
+      focus(id: NodeId): void
+    }
   }
 }
 

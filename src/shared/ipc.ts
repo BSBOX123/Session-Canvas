@@ -8,7 +8,8 @@ export const CHANNELS = {
   ptyDetach: 'pty:detach',
   ptyKill: 'pty:kill',
   ptyData: 'pty:data',
-  ptyExit: 'pty:exit'
+  ptyExit: 'pty:exit',
+  dialogPickDirectory: 'dialog:pickDirectory'
 } as const
 
 /**
@@ -44,6 +45,12 @@ export interface PtyApi {
   onExit(cb: (id: NodeId, code: number) => void): Unsubscribe
 }
 
+export interface DialogApi {
+  /** 디렉터리 선택 창. 취소하면 null (SPEC 7.2). */
+  pickDirectory(): Promise<string | null>
+}
+
 export interface Api {
   pty: PtyApi
+  dialog: DialogApi
 }
