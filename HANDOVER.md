@@ -53,7 +53,8 @@
 - [x] `claude` 정상 — `claude --version` → 2.1.278. **로그인 셸 PATH 해석이 동작한다는 증거**(SPEC 4.4)
 - [x] 한글 출력 정상 — `한글 출력 테스트 가나다라` 왕복
 - [x] 한글 폭 계산 정상 — `abc`=3칸, `가나다`=6칸 (unicode11)
-- [x] 한글 입력 — IME 조합(ㅎ→하→한) 후 확정 시 중복·누락 없이 1회 (아래 R3 주의)
+- [x] 한글 입력 — 자동(CDP 조합 시뮬레이션) + **사용자 직접 타이핑 확인 완료** (R3)
+- [x] (기준 외 추가) **앱 터미널 안에서 Claude Code 실행** — 한글 질문·응답 렌더링, 입력 박스 테두리 정렬, 긴 한글 줄바꿈, `Esc`·`Shift+Tab` 전달까지 정상. 단계 3에서 tmux를 끼운 뒤 비교할 기준점이다
 - [x] 창 리사이즈 시 줄바꿈 정상 — 159→85열, 셸의 `tput cols`도 85
 - [x] 트루컬러 — `\033[38;2;255;100;0m` → 셀이 RGB 모드 `#ff6400`
 - [x] `npm test`(16) / `npm run lint` / `npm run typecheck` / `prettier --check` 통과
@@ -65,7 +66,7 @@
 | # | 결과 |
 |---|---|
 | **R5** node-pty Electron 재빌드 | ✅ **확인됨.** `package.json`의 `postinstall: electron-builder install-app-deps`가 `@electron/rebuild`를 호출해 node-pty 1.1.0을 Electron 39.8.10 / arm64로 빌드한다(`node_modules/node-pty/build/Release/pty.node`). Electron 런타임에서 import 성공. **주의: 이 바이너리는 Electron ABI이므로 순수 Node(= vitest)에서는 import할 수 없다.** 그래서 node-pty 검증은 단위 테스트가 아니라 main 프로세스 기동 로그로 한다. `npm install`/Electron 버전 변경 후에는 postinstall이 자동으로 다시 빌드한다. |
-| **R3** 한글 IME 조합 입력 | ⚠️ **부분 확인.** CDP `Input.imeSetComposition` + `Input.insertText`로 조합→확정을 넣었을 때 중복·누락 없이 1회 입력된다. 다만 이것은 Chromium 레벨의 조합 이벤트 시뮬레이션이고, macOS 두벌식 IME로 실제 타이핑했을 때의 조합 중 커서 위치·깜빡임까지 보장하지는 않는다. **사용자가 직접 한글을 타이핑해 확인해야 한다.** |
+| **R3** 한글 IME 조합 입력 | ✅ **확인됨 (2026-09-20, 사용자 수동 테스트).** macOS 두벌식 IME로 직접 타이핑해 전부 정상: 조합 중 글자가 커서 자리에서 바뀜 · 확정 시 중복·누락 없음 · 조합 중 백스페이스가 자모 단위 · 한글 뒤 영문이 겹치지 않음 · 커서 이동 후 삽입 정상 · `echo 한글테스트가나다` 왕복 일치. **tmux 없이 zsh를 직접 띄운 조건**에서의 결과다. 단계 3에서 tmux를 끼우면 다시 확인해야 한다(R2와 함께). 자동 점검(`verify:terminal`)의 CDP 조합 시뮬레이션은 회귀 감지용으로 남겨 둔다. |
 | R1, R2, R4, R6, R7, R8 | 미확인 (각각 단계 3/4/5에서 확인 예정) |
 
 ---
