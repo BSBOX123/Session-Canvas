@@ -16,6 +16,10 @@ export function installDevBridge(): void {
     get nodes() {
       return useWorkspace.getState().nodes
     },
+    get statuses() {
+      return useWorkspace.getState().statuses
+    },
+    markSeen: (id: NodeId) => useWorkspace.getState().markSeen(id),
     addNode: (input: NewNodeInput) => useWorkspace.getState().addNode(input).id,
     updateNode: (id: NodeId, patch: Partial<TerminalNodeData>) =>
       useWorkspace.getState().updateNode(id, patch),

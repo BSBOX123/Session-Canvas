@@ -13,6 +13,7 @@ import '@xyflow/react/dist/style.css'
 import TerminalNode, { type TerminalFlowNode } from '../nodes/TerminalNode'
 import NewNodeDialog from '../nodes/NewNodeDialog'
 import OrphanSessions from './OrphanSessions'
+import SettingsPanel from '../settings/SettingsPanel'
 import { useWorkspace, type NewNodeInput } from '../state/workspace'
 import { focus } from '../terminal/TerminalRegistry'
 
@@ -30,13 +31,14 @@ function CanvasInner(): React.JSX.Element {
   const viewport = useWorkspace((s) => s.viewport)
   const notice = useWorkspace((s) => s.notice)
   const dismissNotice = useWorkspace((s) => s.dismissNotice)
-  const { screenToFlowPosition } = useReactFlow()
+  const { screenToFlowPosition, setCenter } = useReactFlow()
 
   const [dialogPosition, setDialogPosition] = useState<{ x: number; y: number } | null>(null)
   // 선택은 화면 상태일 뿐이라 워크스페이스(SPEC 9.1)에 넣지 않는다. 다만
   // ReactFlow가 제어 모드이므로 여기서 들고 있지 않으면 선택이 살지 않고,
   // NodeResizer(선택 시에만 보임)도 영영 안 나타난다.
   const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(new Set())
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const wrapperRef = useRef<HTMLDivElement>(null)
 
   const flowNodes: TerminalFlowNode[] = useMemo(
@@ -121,6 +123,25 @@ function CanvasInner(): React.JSX.Element {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [openDialogAt])
 
+  // 알림을 클릭하면 그 노드로 줌인한다 (SPEC 8.6).
+  useEffect(() => {
+    const onFocusNode = (event: Event): void => {
+      const id = (event as CustomEvent<string>).detail
+      const node = useWorkspace.getState().nodes.find((n) => n.id === id)
+      if (!node) return
+      void setCenter(
+        node.position.x + node.size.width / 2,
+        node.position.y + node.size.height / 2,
+        {
+          zoom: 1,
+          duration: 200
+        }
+      ).then(() => focus(id))
+    }
+    window.addEventListener('session-canvas:focus-node', onFocusNode)
+    return () => window.removeEventListener('session-canvas:focus-node', onFocusNode)
+  }, [setCenter])
+
   return (
     <div className="canvas-wrapper" ref={wrapperRef}>
       <ReactFlow<TerminalFlowNode>
@@ -154,6 +175,15 @@ function CanvasInner(): React.JSX.Element {
         <MiniMap pannable zoomable nodeColor="#2b3a4a" maskColor="rgba(0,0,0,0.5)" />
       </ReactFlow>
 
+      <button
+        type="button"
+        className="settings-button"
+        onClick={() => setSettingsOpen(true)}
+        title="설정"
+      >
+        ⚙
+      </button>
+
       <OrphanSessions />
 
       {notice !== null && (
@@ -174,6 +204,8 @@ function CanvasInner(): React.JSX.Element {
       {dialogPosition !== null && (
         <NewNodeDialog onCancel={() => setDialogPosition(null)} onCreate={create} />
       )}
+
+      {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} />}
     </div>
   )
 }

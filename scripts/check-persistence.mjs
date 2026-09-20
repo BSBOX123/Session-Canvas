@@ -28,6 +28,7 @@ import {
   sleep,
   startDevApp,
   stopDevApp,
+  waitForBridge,
   waitForPageTarget,
   watchdog
 } from './lib/cdp.mjs'
@@ -57,11 +58,7 @@ const launch = {
 async function launchApp() {
   const dev = startDevApp(launch)
   const client = await connect(await waitForPageTarget(options))
-  const deadline = Date.now() + 40_000
-  while (!(await client.evaluate('!!window.__sessionCanvas'))) {
-    if (Date.now() > deadline) throw new Error('타임아웃: 개발 브리지가 뜨지 않았습니다')
-    await sleep(250)
-  }
+  await waitForBridge(client)
   return { dev, client }
 }
 

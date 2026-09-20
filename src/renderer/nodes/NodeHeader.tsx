@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
-import type { TerminalNodeData } from '@shared/types'
+import type { SessionState, TerminalNodeData } from '@shared/types'
 import { useWorkspace } from '../state/workspace'
 import { displayTitle } from './displayTitle'
+import { presentStatus } from './statusPresentation'
 
 interface NodeHeaderProps {
   node: TerminalNodeData
   sessionMissing: boolean
+  state: SessionState
+  unseen: boolean
   onZoomToNode(): void
   /** 닫기(분리) — tmux 세션은 살아남는다 (SPEC 5.3). */
   onDetach(): void
@@ -20,6 +23,8 @@ interface NodeHeaderProps {
 function NodeHeader({
   node,
   sessionMissing,
+  state,
+  unseen,
   onZoomToNode,
   onDetach,
   onKill
@@ -28,6 +33,7 @@ function NodeHeader({
   const [editingTitle, setEditingTitle] = useState(false)
   const [confirmingClose, setConfirmingClose] = useState(false)
   const titleRef = useRef<HTMLInputElement>(null)
+  const status = presentStatus(sessionMissing ? 'detached' : state)
 
   useEffect(() => {
     if (editingTitle) titleRef.current?.select()
@@ -36,11 +42,10 @@ function NodeHeader({
   return (
     <div className="node-header drag-handle">
       <div className="node-header-main">
-        <span
-          className={`node-badge${sessionMissing ? ' detached' : ''}`}
-          title={sessionMissing ? '세션 없음' : '대기 (상태 감지는 단계 4)'}
-        >
-          {sessionMissing ? '–' : '○'}
+        {/* SPEC 8.1: 기호 + 문구 + 색을 함께 보여준다. 색만으로 전달하지 않는다. */}
+        <span className={`node-badge ${status.className}${unseen ? ' unseen' : ''}`}>
+          <span aria-hidden="true">{status.symbol}</span>
+          <span className="node-badge-label">{status.label}</span>
         </span>
         {editingTitle ? (
           <input

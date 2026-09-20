@@ -4,7 +4,7 @@
 > 정본 명세는 `SPEC.md`.
 
 - 최종 갱신: 2026-09-20
-- 현재 단계: **단계 3 (tmux·영속성) 완료.** 다음은 단계 4(상태 감지).
+- 현재 단계: **단계 4 (상태 감지) 완료.** 다음은 단계 5(줌 단계·성능).
 
 ---
 
@@ -16,7 +16,7 @@
 | 1 단일 터미널 | ✅ 완료 (2026-09-20) | xterm + node-pty(직접 zsh), LoginEnv, fit·unicode11·clipboard·web-links |
 | 2 캔버스·다중 노드 | ✅ 완료 (2026-09-20) | React Flow, TerminalNode, TerminalRegistry, 생성 대화상자, zustand |
 | 3 tmux·영속성 | ✅ 완료 (2026-09-20) | TmuxService, buildArgs, tmux.conf, WorkspaceStore, 복구 흐름, 닫기 vs 종료 |
-| 4 상태 감지 | ⬜ 미착수 | |
+| 4 상태 감지 | ✅ 완료 (2026-09-20) | 훅 스크립트, HookInstaller, StatusWatcher, 상태 배지, 알림, Dock 배지 |
 | 5 줌 단계·성능 | ⬜ 미착수 | |
 | 6 다듬기·패키징 | ⬜ 미착수 | |
 
@@ -45,7 +45,11 @@
 - 시작 시 tmux 확인 → 없으면 설치 안내 화면(앱이 죽지 않는다).
 - 세션이 사라진 노드는 "세션 없음" 패널 + [새로 시작], 워크스페이스에 없는 세션은 우상단 "분리된 세션" 목록에서 복원.
 - 헤더 `×` → [닫기(분리)] / [세션 종료] / [취소]. 분리는 tmux 세션을 살려 둔다.
-- 점검: `npm run verify:renderer` / `verify:terminal`(9항목) / `verify:canvas`(12항목) / `verify:persistence`(13항목).
+- **Claude Code 상태 감지.** 노드 헤더에 기호+문구+색으로 `대기`/`작업 중`/`입력 대기`/`완료`/`세션 없음`을 보여준다. 입력 대기는 테두리가 맥박친다.
+- 포커스하면 unseen이 풀리고 `완료`는 `대기`로 내려간다. unseen 개수가 Dock 배지로 나간다.
+- 창이 비활성일 때 `입력 대기`·`완료`로 바뀌면 macOS 알림. 클릭하면 그 노드로 줌인.
+- 설정 화면(좌상단 ⚙)에서 **동의를 거쳐** `~/.claude/settings.json`에 훅을 설치/제거한다. 원본은 백업된다.
+- 점검: `verify:renderer` / `verify:terminal`(9) / `verify:canvas`(12) / `verify:persistence`(13) / `verify:status`(7).
 
 ### 단계 0 완료 기준 체크리스트 (SPEC 12.1)
 
@@ -99,6 +103,19 @@
 - [x] 세션 종료 → tmux 세션 제거
 - [x] `npm test`(52) / `lint` / `typecheck` / `prettier --check` 통과
 
+### 단계 4 완료 기준 체크리스트 (SPEC 12.1)
+
+`npm run verify:status`로 자동 확인(실제 Claude Code 세션을 노드 안에서 띄워서):
+
+- [x] 프롬프트 제출 → 작업 중
+- [x] 권한 요청 → 입력 대기 (`PermissionRequest` 훅)
+- [x] 응답 종료 → 완료
+- [x] `SessionStart`의 `session_id`가 노드에 저장됨 (SPEC 5.4 resume용)
+- [x] 완료는 unseen, 포커스하면 해제되고 `done → unknown`
+- [x] **앱 밖 Claude Code에는 영향 없음** — 노드 id 없이 실행하면 상태 파일을 만들지 않는다
+- [x] 설치/제거가 기존 `settings.json`을 보존 — `tests/hookInstaller.test.ts`가 임시 HOME으로 확인(백업 생성, 사용자 훅 보존, 파싱 실패 시 무변경)
+- [x] `npm test`(110) / `lint` / `typecheck` / `prettier --check` 통과
+
 ---
 
 ## 3. 13장 R 항목 확인 결과
@@ -109,38 +126,71 @@
 | **R3** 한글 IME 조합 입력 | ✅ **확인됨 (2026-09-20, 사용자 수동 테스트).** macOS 두벌식 IME로 직접 타이핑해 전부 정상: 조합 중 글자가 커서 자리에서 바뀜 · 확정 시 중복·누락 없음 · 조합 중 백스페이스가 자모 단위 · 한글 뒤 영문이 겹치지 않음 · 커서 이동 후 삽입 정상 · `echo 한글테스트가나다` 왕복 일치. **tmux 없이 zsh를 직접 띄운 조건**에서의 결과다. 단계 3에서 tmux를 끼우면 다시 확인해야 한다(R2와 함께). 자동 점검(`verify:terminal`)의 CDP 조합 시뮬레이션은 회귀 감지용으로 남겨 둔다. |
 | **R2** tmux 안 Claude Code의 Shift+Enter | ✅ **확인하고 고쳤다 (단계 3).** `cat -v`로 재보니 **xterm이 Shift+Enter를 그냥 Enter와 똑같이 보낸다.** tmux의 `extended-keys on`만으로는 소용이 없다 — 터미널이 애초에 구별해 주지 않기 때문이다. `attachCustomKeyEventHandler`에서 가로채 `ESC CR`(Option+Enter와 같은 바이트)로 보내도록 했고, 다시 재보니 `^[`가 도착한다. iTerm에서 `claude`의 `/terminal-setup`이 하는 것과 같은 방식. **Claude Code 프롬프트에서 실제로 줄바꿈이 되는지는 사용자 확인 필요.** |
 | **R4** tmux 안 Claude Code 렌더링 | ⚠️ **부분 확인.** tmux를 거쳐도 한글 출력·전각 폭·트루컬러·리사이즈·vim(대체 화면)이 모두 정상이고 `claude --version`도 뜬다(`verify:terminal` 9/9). **깜빡임·스피너·색 같은 실제 렌더링 품질은 iTerm 직접 실행과 눈으로 비교해야 한다.** |
-| R1, R6, R7, R8 | 미확인 (각각 단계 4/5에서 확인 예정) |
+| **R1** hooks 스키마 | ✅ **확인 완료 (2026-09-20, 2.1.278).** 공식 문서 + **실제 stdin 덤프** 둘 다 했다. 문서 요약과 실제 필드명이 달랐다: SessionStart의 이유는 `session_start_reason`이 아니라 **`source`**, UserPromptSubmit은 `user_input`이 아니라 **`prompt`**, SessionEnd는 **`reason`**. 결과는 SPEC §8.2에 실측 표로 반영. `--settings` 플래그는 병합되지만 노드 안에서 `claude`를 다시 실행하면 빠지므로 **D7(전역 병합) 유지**. |
+| R6, R7, R8 | 미확인 (R6·R7은 단계 5, R8은 아래 참조) |
 
 ---
 
 ## 4. 알려진 이슈 · 환경 준비물
 
-1. **tmux 미설치.** 이 개발 머신에 `tmux`가 없다(`tmux -V` → command not found). SPEC 4.3은 3.3+를 요구한다. **단계 3 시작 전에 `brew install tmux` 필요.**
+1. ~~tmux 미설치~~ → 해결됨. tmux 3.7c 설치 확인 (SPEC 4.3은 3.3+ 요구).
 2. `npm audit`에 4건(moderate 2, high 2) — 모두 devDependency 체인. 단계 6 패키징 전에 재확인.
-3. 렌더러 번들이 641 kB로 이미 크다(React). 단계 2에서 React Flow, xterm이 들어가면 더 커진다. 로컬 앱이라 당장 문제는 아니다.
+3. 렌더러 번들이 1.5 MB다(React + React Flow + xterm). 로컬 앱이라 당장 문제는 아니다.
+5. 상태 감지는 **사용자가 설정에서 직접 켜야** 동작한다. 앱이 마음대로 `~/.claude/settings.json`을 고치지 않는다 (SPEC 0.4).
+6. 노드를 띄울 때 로그인 셸이 질문을 던지면(예: oh-my-zsh 자동 업데이트) 그 자리에서 멈춘다. iTerm과 같은 동작이라 앱에서 손대지 않았다.
 4. 개발 모드는 터미널의 PATH를 물려받으므로 SPEC 4.4(PATH 문제)가 가려진다. 단계 6에서 패키징된 `.app`으로 반드시 재확인.
 
 ---
 
-## 5. 다음에 할 일 (단계 4)
+## 5. 다음에 할 일 (단계 5)
 
-SPEC 12.1 단계 4 — Claude Code hooks 기반 상태 감지. **SPEC 8장 전체.**
+SPEC 12.1 단계 5 — 줌 단계와 성능.
 
-- **가장 먼저 R1을 확인한다** (SPEC 0.3, 13장): 훅 이벤트 이름·stdin JSON 필드·matcher 문법·`--settings` 플래그 동작을 공식 문서(`https://docs.claude.com/en/docs/claude-code/hooks`)로 확인하고 §8.2 표를 고친다. **추측으로 구현하지 않는다.**
-- `resources/hooks/session-canvas-hook.sh` (SPEC 8.3) — jq 금지, 항상 `exit 0`, stdout 없음
-- `src/main/status/mapEvent.ts` (순수 함수, **단위 테스트 필수**), `status/StatusWatcher.ts`
-- `src/main/hooks/mergeSettings.ts` (순수 함수, **단위 테스트 필수**), `hooks/HookInstaller.ts`
-- `src/main/notify/Notifier.ts` — macOS 알림, Dock 배지
-- 노드 헤더 상태 배지(SPEC 8.1) — 지금은 `○` 자리만 잡아 뒀다
-- 완료 기준: 프롬프트 제출 → 작업 중 · 권한 요청 → 입력 대기 · 응답 종료 → 완료 · 포커스 시 unseen 해제 · **앱 밖 iTerm의 Claude Code에는 영향 없음** · 설치/제거가 기존 `settings.json`을 보존
+- SPEC 7.3 semantic zoom: 상세(≥0.75) / 미리보기(0.4~0.75, 입력 불가) / 개요(<0.4, 터미널 숨기고 카드)
+- SPEC 6.3 WebGL 정책: 포커스된 + 최근 포커스된 최대 `webglMax`(기본 4)개에만 WebGL, 나머지는 DOM. `webglcontextlost`면 DOM으로 되돌린다
+- SPEC 7.5 단축키 전체 (`src/renderer/shortcuts/useShortcuts.ts`) — 지금은 `Cmd+N`만 있다
+- 미니맵을 상태 색으로 (이미 미니맵은 있다)
+- R6(WebGL 컨텍스트 한계), R7(대량 출력 성능) 확인
+- 완료 기준: 노드 10개에서 스크롤·타이핑 끊김 없음 · WebGL 컨텍스트가 `webglMax` 초과하지 않음 · 개요 단계에서 제목·상태만 보임 · 모든 단축키 동작
 
-시작 전 반드시 알아야 할 것:
-- **`~/.claude/settings.json`은 사용자 전역 설정이다 (SPEC 0.4/8.4).** 앱 UI에서 명시적 동의를 받은 뒤에만, 백업하고 병합한다. 개발 중 테스트는 임시 HOME이나 fixture로 한다. 이 세션이 쓰는 Claude Code 설정이기도 하니 특히 조심할 것.
-- `SESSION_CANVAS_NODE_ID`는 이미 tmux `-e`로 주입되고 있다(`buildArgs.ts`). 훅 스크립트는 이 값만 보면 된다.
-- `claudeSessionId`는 `SessionStart` 훅에서 채워지고, 그래야 SPEC 5.4의 [이전 대화 이어서]가 동작한다. 지금은 `DetachedSession.tsx`에 [새로 시작]만 있다.
-- R8(재부팅 후 tmux 세션 소멸 → resume 흐름)도 단계 4에서 확인한다.
+시작 전 알아야 할 것:
+- **알림 조건이 아직 절반이다.** SPEC 8.6은 "창이 비활성 **이거나 그 노드가 화면 밖/개요 단계**"일 때 알리라고 한다. 지금은 `document.hasFocus()`만 본다 — 개요 단계가 생기는 단계 5에서 나머지를 채워야 한다.
+- 터미널 인스턴스는 이미 `TerminalRegistry`가 React 밖에서 들고 있어서(SPEC 6.4), 개요 단계에서 언마운트해도 버퍼가 살아남는다. WebGL 정책도 이 레지스트리에 붙이면 된다.
+- R8(재부팅 후 tmux 세션 소멸 → resume 흐름)은 아직이다. `claudeSessionId`는 이제 `SessionStart` 훅으로 채워지므로, `DetachedSession.tsx`에 [이전 대화 이어서](`claude --resume <id>`)를 붙일 수 있다. 재부팅은 사용자만 할 수 있으니 직접 확인이 필요하다.
+- `~/.claude/settings.json` 훅 설치는 **사용자가 앱에서 직접 켜야** 동작한다. 자동 점검은 프로젝트 설정으로만 검증했다.
 
 ## 6. 삽질 기록
+
+### 4-1. 상태 디렉터리가 없으면 감시가 통째로 죽었다 ⭐
+증상: 훅은 잘 도는데(`~/.session-canvas/status/`에 파일이 생김) 앱이 상태를 하나도 못 받았다.
+
+원인: `fs.watch`는 **없는 디렉터리에 걸면 던진다.** 그 예외를 삼키고 넘어갔는데, 그 뒤 훅이 디렉터리를 만들어도 감시는 영영 시작되지 않는다. **앱을 처음 켠 사람에게는 상태 감지가 통째로 죽는다는 뜻**이었다.
+
+해결: `start()`에서 디렉터리를 먼저 `mkdir -p` 한다. 회귀 테스트로 고정했다.
+
+교훈: 예외를 삼킬 때는 "그래서 그 다음에 무엇이 안 되는가"를 봐야 한다. 조용한 실패가 제일 비싸다.
+
+### 4-2. 문서보다 실제 stdin을 믿어야 했다 ⭐
+공식 문서 요약이 준 필드명과 실제 Claude Code 2.1.278이 보내는 필드명이 달랐다(`session_start_reason`→`source`, `user_input`→`prompt`). SPEC 0.3이 "공식 문서 **+ 실제 훅으로 stdin 덤프**"를 요구한 이유가 이것이다.
+→ 임시 폴더의 **프로젝트 설정**에 덤프 훅을 걸고 `claude -p`를 한 번 돌려 실제 JSON을 받아 §8.2를 실측 기준으로 다시 썼다. `~/.claude`는 건드리지 않았다.
+
+또 하나: `PreToolUse` → `PermissionRequest` 순서라는 것도 이때 확인했다. 덕분에 "작업 중 → 입력 대기" 전이가 자연스럽게 나온다.
+
+### 4-3. `-p` 모드로는 "입력 대기"를 볼 수 없다
+`claude -p`는 권한 요청이 즉시 거부돼 `PermissionRequest`가 스쳐 지나간다. 훅은 파일 하나를 덮어쓰므로 50ms 디바운스에 먹혀 `waiting`이 아예 관측되지 않았다.
+→ 점검을 **대화형** `claude`로 바꿨다. 사람이 답할 때까지 프롬프트가 남아 있고, 그게 실제 사용 모습이다.
+
+### 4-4. 새 폴더의 대화형 claude는 "신뢰" 확인을 먼저 띄운다
+그리고 **기본 선택이 "No, exit"** 이다. 그대로 Enter를 치면 Claude Code가 아예 안 켜진다.
+→ 점검이 버퍼에서 `trust this folder`를 보면 아래 화살표 + Enter로 답한다.
+
+### 4-5. 부팅이 끝나기 전에 노드를 추가하면 사라진다 ⭐
+점검이 `window.__sessionCanvas`가 보이자마자 노드를 추가했는데, 앱의 시작 흐름은 비동기라(tmux 확인 → workspace 로드 → `hydrate`) 뒤늦은 `hydrate()`가 `nodes`를 통째로 덮어써 방금 만든 노드를 지웠다. 어떤 날은 통과하고 어떤 날은 "셸 프롬프트 타임아웃"이 났다.
+→ 공용 `waitForBridge()`를 만들어 **캔버스가 그려질 때까지** 기다린 뒤 노드를 추가한다. 네 점검 스크립트 모두 여기에 맞췄다.
+
+### 4-6. 세션이 끝난 뒤의 상태를 보고 판정했다
+`done`의 unseen을 확인하려고 `/exit` 뒤에 상태를 다시 읽었는데, `SessionEnd`가 이미 `unknown`으로 내려놓은 뒤였다. 앱이 아니라 점검의 순서 문제.
+→ 관측 기록에서 `done` 시점의 값을 꺼내 판정한다. 그리고 이 전이는 타이밍에 기대지 않도록 **단위 테스트**(SPEC 14.1이 요구하는 항목이기도 하다)로 고정했다.
 
 ### 3-1. 점검 스크립트가 영원히 멈췄다 ⭐
 증상: `verify:persistence`가 첫 확인 항목도 못 찍고 10분 넘게 매달려 있었다.

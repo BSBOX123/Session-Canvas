@@ -29,6 +29,7 @@ import {
   sleep,
   startDevApp,
   stopDevApp,
+  waitForBridge,
   waitForPageTarget
 } from './lib/cdp.mjs'
 
@@ -117,11 +118,7 @@ try {
   }
 
   // 개발 브리지가 설치될 때까지 기다렸다가, 점검용 노드를 하나 만든다.
-  const bridgeDeadline = Date.now() + 30_000
-  while (!(await evaluate('!!window.__sessionCanvas'))) {
-    if (Date.now() > bridgeDeadline) throw new Error('타임아웃: 개발 브리지(SPEC 14.3)가 없습니다')
-    await sleep(250)
-  }
+  await waitForBridge(client)
   NODE_ID = await evaluate(`(() => {
     const bridge = window.__sessionCanvas
     const existing = bridge.nodes[0]

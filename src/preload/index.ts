@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
-import { CHANNELS, type Api, type Unsubscribe } from '../shared/ipc'
+import { CHANNELS, type Api, type StatusChange, type Unsubscribe } from '../shared/ipc'
 import type { NodeId } from '../shared/types'
 
 /**
@@ -32,6 +32,21 @@ const api: Api = {
     check: () => ipcRenderer.invoke(CHANNELS.tmuxCheck),
     listOrphans: (known) => ipcRenderer.invoke(CHANNELS.tmuxListOrphans, known),
     exists: (id) => ipcRenderer.invoke(CHANNELS.tmuxExists, id)
+  },
+  status: {
+    onChange: (cb) => subscribe<[StatusChange]>(CHANNELS.statusChanged, cb),
+    setKnownNodes: (ids) => ipcRenderer.send(CHANNELS.statusSetKnownNodes, ids)
+  },
+  hooks: {
+    state: () => ipcRenderer.invoke(CHANNELS.hooksState),
+    install: () => ipcRenderer.invoke(CHANNELS.hooksInstall),
+    uninstall: () => ipcRenderer.invoke(CHANNELS.hooksUninstall)
+  },
+  app: {
+    setBadge: (n) => ipcRenderer.send(CHANNELS.appSetBadge, n),
+    notify: (nodeId, title, state) => ipcRenderer.send(CHANNELS.appNotify, nodeId, title, state),
+    setNotificationsEnabled: (enabled) => ipcRenderer.send(CHANNELS.appSetNotifications, enabled),
+    onNotificationClick: (cb) => subscribe<[NodeId]>(CHANNELS.appNotificationClick, cb)
   },
   dialog: {
     pickDirectory: () => ipcRenderer.invoke(CHANNELS.dialogPickDirectory)

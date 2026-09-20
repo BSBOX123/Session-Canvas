@@ -1,3 +1,4 @@
+import { homedir } from 'node:os'
 import { join } from 'path'
 import { app, shell, BrowserWindow } from 'electron'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
@@ -7,12 +8,16 @@ import { resourcePath } from './resources'
 import { TmuxService } from './tmux/TmuxService'
 import { TMUX_SOCKET, type TmuxContext } from './tmux/buildArgs'
 import { WorkspaceStore } from './workspace/WorkspaceStore'
+import { HookInstaller } from './hooks/HookInstaller'
+import { StatusWatcher } from './status/StatusWatcher'
+import { Notifier } from './notify/Notifier'
 import { PtyManager } from './pty/PtyManager'
 import { createForwarder, registerIpcHandlers } from './ipc'
 
 let mainWindow: BrowserWindow | null = null
 let ptyManager: PtyManager | null = null
 let workspaceStore: WorkspaceStore | null = null
+let statusWatcher: StatusWatcher | null = null
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -80,10 +85,32 @@ app.whenReady().then(async () => {
     onExit: (id, code) => forward(CHANNELS.ptyExit, id, code)
   })
   workspaceStore = new WorkspaceStore(join(app.getPath('userData'), 'workspace.json'))
+
+  // SPEC 8.3~8.6. HOME을 통째로 바꿀 수 있게 해 둔다 — 점검이 진짜
+  // `~/.claude`를 건드리지 않게 하기 위한 유일한 통로다 (SPEC 14.2).
+  const home = process.env.SESSION_CANVAS_HOME ?? homedir()
+  const hookInstaller = new HookInstaller({
+    source: resourcePath('hooks/session-canvas-hook.sh'),
+    target: join(home, '.session-canvas', 'bin', 'session-canvas-hook.sh'),
+    settings: join(home, '.claude', 'settings.json')
+  })
+  const notifier = new Notifier(
+    () => mainWindow,
+    (nodeId) => forward(CHANNELS.appNotificationClick, nodeId)
+  )
+  statusWatcher = new StatusWatcher(join(home, '.session-canvas', 'status'), (change) =>
+    forward(CHANNELS.statusChanged, change)
+  )
+  // 앱을 켜기 전에 남은 상태 파일은 무시한다 (SPEC 8.5).
+  await statusWatcher.start(new Date())
+
   registerIpcHandlers({
     pty: ptyManager,
     tmux: tmuxService,
     store: workspaceStore,
+    status: statusWatcher,
+    hooks: hookInstaller,
+    notifier,
     getWindow: () => mainWindow
   })
 
@@ -95,6 +122,7 @@ app.whenReady().then(async () => {
 })
 
 app.on('before-quit', () => {
+  statusWatcher?.stop()
   // PTY(= tmux 클라이언트)만 정리한다. 세션은 tmux 서버에 그대로 남는다.
   ptyManager?.detachAll()
   void workspaceStore?.flush()

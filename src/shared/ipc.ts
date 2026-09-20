@@ -1,5 +1,5 @@
 /** SPEC 10 IPC 계약. 채널 이름과 페이로드 타입은 여기서만 정의한다. */
-import type { NodeId, TerminalNodeData, Workspace } from './types'
+import type { NodeId, SessionState, TerminalNodeData, Workspace } from './types'
 
 export const CHANNELS = {
   ptyOpen: 'pty:open',
@@ -14,7 +14,16 @@ export const CHANNELS = {
   workspaceSave: 'workspace:save',
   tmuxCheck: 'tmux:check',
   tmuxExists: 'tmux:exists',
-  tmuxListOrphans: 'tmux:listOrphans'
+  tmuxListOrphans: 'tmux:listOrphans',
+  statusChanged: 'status:changed',
+  statusSetKnownNodes: 'status:setKnownNodes',
+  hooksState: 'hooks:state',
+  hooksInstall: 'hooks:install',
+  hooksUninstall: 'hooks:uninstall',
+  appSetBadge: 'app:setBadge',
+  appNotify: 'app:notify',
+  appNotificationClick: 'app:notificationClick',
+  appSetNotifications: 'app:setNotifications'
 } as const
 
 /**
@@ -78,6 +87,40 @@ export interface TmuxApi {
   exists(id: NodeId): Promise<boolean>
 }
 
+/** SPEC 8.2가 해석한 결과. `NodeStatus`의 unseen은 renderer가 관리한다. */
+export interface StatusChange {
+  nodeId: NodeId
+  state: SessionState
+  at: string
+  claudeSessionId: string | null
+}
+
+export interface StatusApi {
+  onChange(cb: (change: StatusChange) => void): Unsubscribe
+  /** 워크스페이스에 없는 노드의 상태 파일은 무시한다 (SPEC 8.5). */
+  setKnownNodes(ids: NodeId[]): void
+}
+
+export type HookInstallState = 'installed' | 'not-installed' | 'outdated'
+
+export interface HooksApi {
+  state(): Promise<HookInstallState>
+  /**
+   * ⚠️ `~/.claude/settings.json`을 고친다. 앱 UI에서 사용자 동의를 받은
+   * 뒤에만 부른다 (SPEC 0.4 / 8.4). 원본은 백업된다.
+   */
+  install(): Promise<{ backup: string | null }>
+  uninstall(): Promise<{ backup: string | null }>
+}
+
+export interface AppApi {
+  setBadge(n: number): void
+  /** 알림은 renderer가 "보여야 하는 상황인지" 판단한 뒤 요청한다 (SPEC 8.6). */
+  notify(nodeId: NodeId, title: string, state: SessionState): void
+  setNotificationsEnabled(enabled: boolean): void
+  onNotificationClick(cb: (nodeId: NodeId) => void): Unsubscribe
+}
+
 export interface DialogApi {
   /** 디렉터리 선택 창. 취소하면 null (SPEC 7.2). */
   pickDirectory(): Promise<string | null>
@@ -87,5 +130,8 @@ export interface Api {
   pty: PtyApi
   workspace: WorkspaceApi
   tmux: TmuxApi
+  status: StatusApi
+  hooks: HooksApi
+  app: AppApi
   dialog: DialogApi
 }

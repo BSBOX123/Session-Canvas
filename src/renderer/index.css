@@ -506,3 +506,164 @@ body {
   padding: 3px 8px;
   flex: none;
 }
+
+/* ── 상태 배지 (SPEC 8.1) ─────────────────────────────── */
+
+.node-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  font-size: 11px;
+  padding: 1px 6px 1px 4px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  color: var(--fg-dim);
+}
+
+.node-badge-label {
+  white-space: nowrap;
+}
+
+.node-badge.unknown {
+  color: var(--fg-dim);
+}
+
+.node-badge.working {
+  color: #6ba8ff;
+  border-color: rgba(107, 168, 255, 0.35);
+  background: rgba(107, 168, 255, 0.1);
+}
+
+.node-badge.waiting {
+  color: #ffa94d;
+  border-color: rgba(255, 169, 77, 0.5);
+  background: rgba(255, 169, 77, 0.12);
+}
+
+.node-badge.done {
+  color: #64c98a;
+  border-color: rgba(100, 201, 138, 0.4);
+  background: rgba(100, 201, 138, 0.1);
+}
+
+.node-badge.detached {
+  color: var(--fg-dim);
+  border-style: dashed;
+  border-color: var(--border);
+}
+
+/* 입력 대기는 테두리를 맥박치게 한다 (SPEC 8.1). */
+.terminal-node:has(.node-badge.waiting.unseen) {
+  animation: waiting-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes waiting-pulse {
+  0%,
+  100% {
+    border-color: var(--border);
+  }
+  50% {
+    border-color: #ffa94d;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .terminal-node:has(.node-badge.waiting.unseen) {
+    animation: none;
+    border-color: #ffa94d;
+  }
+}
+
+.node-badge.done.unseen,
+.node-badge.waiting.unseen {
+  font-weight: 600;
+}
+
+/* ── 설정 ─────────────────────────────────────────────── */
+
+.settings-button {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 20;
+  width: 28px;
+  height: 28px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--fg-dim);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.settings-button:hover {
+  color: var(--fg);
+  background: var(--panel-2);
+}
+
+.dialog.settings {
+  width: 520px;
+  gap: 0;
+}
+
+.dialog.settings section {
+  border-top: 1px solid var(--border);
+  padding: 14px 0;
+}
+
+.dialog.settings h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  margin: 0 0 6px;
+}
+
+.settings-state {
+  color: var(--fg-dim);
+  font-weight: 400;
+  font-size: 12px;
+}
+
+.dialog.settings p {
+  color: var(--fg-dim);
+  line-height: 1.6;
+  margin: 0 0 10px;
+}
+
+.dialog.settings code {
+  background: var(--bg);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+.settings-consent {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+}
+
+.settings-consent .dialog-actions {
+  margin-top: 10px;
+}
+
+.dialog-actions.start {
+  justify-content: flex-start;
+}
+
+.settings-result {
+  color: var(--fg);
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.settings-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--fg);
+  cursor: pointer;
+}

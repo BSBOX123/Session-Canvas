@@ -9,6 +9,9 @@ import { MAX_COMMAND_LENGTH, NODE_ID_PATTERN, type NodeId, type Workspace } from
 import type { OpenDialogOptions } from 'electron'
 import type { PtyManager } from './pty/PtyManager'
 import type { TmuxService } from './tmux/TmuxService'
+import type { HookInstaller } from './hooks/HookInstaller'
+import type { Notifier } from './notify/Notifier'
+import type { StatusWatcher } from './status/StatusWatcher'
 import type { WorkspaceStore } from './workspace/WorkspaceStore'
 import { parseWorkspace } from './workspace/serialize'
 
@@ -60,10 +63,21 @@ export interface IpcDeps {
   pty: PtyManager
   tmux: TmuxService
   store: WorkspaceStore
+  status: StatusWatcher
+  hooks: HookInstaller
+  notifier: Notifier
   getWindow(): BrowserWindow | null
 }
 
-export function registerIpcHandlers({ pty, tmux, store, getWindow }: IpcDeps): void {
+export function registerIpcHandlers({
+  pty,
+  tmux,
+  store,
+  status,
+  hooks,
+  notifier,
+  getWindow
+}: IpcDeps): void {
   ipcMain.handle(
     CHANNELS.ptyOpen,
     (_event: IpcMainInvokeEvent, req: unknown, cols: unknown, rows: unknown) => {
@@ -111,6 +125,36 @@ export function registerIpcHandlers({ pty, tmux, store, getWindow }: IpcDeps): v
     const knownIds = new Set(Array.isArray(known) ? known.filter((v) => typeof v === 'string') : [])
     const sessions = await tmux.listSessions()
     return sessions.filter((session) => !knownIds.has(session.id))
+  })
+
+  ipcMain.on(CHANNELS.statusSetKnownNodes, (_event, ids: unknown) => {
+    if (!Array.isArray(ids)) return
+    status.setKnownNodes(ids.filter((id): id is string => typeof id === 'string'))
+  })
+
+  // ⚠️ 사용자 전역 설정을 건드린다 (SPEC 0.4 / 8.4). renderer가 동의 UI를
+  // 거친 뒤에만 부른다.
+  ipcMain.handle(CHANNELS.hooksState, () => hooks.state())
+  ipcMain.handle(CHANNELS.hooksInstall, () => hooks.install())
+  ipcMain.handle(CHANNELS.hooksUninstall, () => hooks.uninstall())
+
+  ipcMain.on(CHANNELS.appSetBadge, (_event, count: unknown) => {
+    if (typeof count !== 'number' || !Number.isFinite(count)) return
+    notifier.setBadge(Math.max(0, Math.floor(count)))
+  })
+
+  ipcMain.on(CHANNELS.appSetNotifications, (_event, enabled: unknown) => {
+    if (typeof enabled !== 'boolean') return
+    notifier.setEnabled(enabled)
+  })
+
+  ipcMain.on(CHANNELS.appNotify, (_event, id: unknown, title: unknown, state: unknown) => {
+    if (state !== 'waiting' && state !== 'done') return
+    notifier.notify({
+      nodeId: assertNodeId(id),
+      title: typeof title === 'string' ? title.slice(0, 120) : '',
+      state
+    })
   })
 
   ipcMain.handle(CHANNELS.dialogPickDirectory, async () => {

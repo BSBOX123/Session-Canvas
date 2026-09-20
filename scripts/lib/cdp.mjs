@@ -192,6 +192,27 @@ export async function connect(page) {
   return { send, evaluate, events, close: () => ws.close() }
 }
 
+/**
+ * 개발 브리지가 뜨고 **부팅이 끝날 때까지** 기다린다 (SPEC 14.3).
+ *
+ * 브리지만 보고 노드를 추가하면 안 된다. 앱의 시작 흐름은 비동기라
+ * (tmux 확인 → workspace 로드 → hydrate), 그 전에 추가한 노드는
+ * `hydrate()`가 통째로 덮어써 사라진다. 캔버스가 그려졌는지까지 본다.
+ */
+export async function waitForBridge(client, timeoutMs = 60_000) {
+  const deadline = Date.now() + timeoutMs
+  for (;;) {
+    const ready = await client.evaluate(
+      `!!(window.__sessionCanvas && document.querySelector('.react-flow'))`
+    )
+    if (ready) return
+    if (Date.now() > deadline) {
+      throw new Error('타임아웃: 앱 시작이 끝나지 않았습니다 (개발 브리지 또는 캔버스 없음)')
+    }
+    await sleep(250)
+  }
+}
+
 /** `Log.enable` 이후 모인 이벤트에서 오류만 골라낸다. */
 export function collectProblems(events) {
   const problems = []

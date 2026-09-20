@@ -24,6 +24,7 @@ import {
   sleep,
   startDevApp,
   stopDevApp,
+  waitForBridge,
   waitForPageTarget
 } from './lib/cdp.mjs'
 
@@ -64,11 +65,7 @@ try {
   const client = await connect(await waitForPageTarget(options))
   const { evaluate, send } = client
 
-  const bridgeDeadline = Date.now() + 30_000
-  while (!(await evaluate('!!window.__sessionCanvas'))) {
-    if (Date.now() > bridgeDeadline) throw new Error('타임아웃: 개발 브리지(SPEC 14.3)가 없습니다')
-    await sleep(250)
-  }
+  await waitForBridge(client)
 
   const term = (id) => `window.__sessionCanvas.terminals[${JSON.stringify(id)}]`
   const bufferOf = (id) =>

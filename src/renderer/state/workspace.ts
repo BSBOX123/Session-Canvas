@@ -6,8 +6,15 @@
  */
 import { nanoid } from 'nanoid'
 import { create } from 'zustand'
-import type { OrphanSession } from '@shared/ipc'
-import { DEFAULT_SETTINGS, type NodeId, type TerminalNodeData, type Workspace } from '@shared/types'
+import type { OrphanSession, StatusChange } from '@shared/ipc'
+import {
+  DEFAULT_SETTINGS,
+  type NodeId,
+  type NodeStatus,
+  type TerminalNodeData,
+  type Workspace
+} from '@shared/types'
+import { isUnseenState } from './isUnseenState'
 
 /** SPEC 7.1: 최소 크기. */
 export const MIN_NODE_SIZE = { width: 360, height: 220 }
@@ -29,6 +36,8 @@ interface WorkspaceState extends Omit<Workspace, 'version'> {
   orphans: OrphanSession[]
   /** 로드 실패·복구 안내 (SPEC 9.2). */
   notice: string | null
+  /** 노드별 상태 (SPEC 8.1). 저장하지 않는다 — 훅과 tmux에서 재구성한다. */
+  statuses: Readonly<Record<NodeId, NodeStatus>>
 
   hydrate(workspace: Workspace, notice: string | null): void
   addNode(input: NewNodeInput): TerminalNodeData
@@ -37,10 +46,15 @@ interface WorkspaceState extends Omit<Workspace, 'version'> {
   updateNode(id: NodeId, patch: Partial<TerminalNodeData>): void
   removeNode(id: NodeId): void
   setViewport(viewport: Workspace['viewport']): void
+  setSettings(patch: Partial<Workspace['settings']>): void
   setMissingSessions(ids: NodeId[]): void
   markSessionStarted(id: NodeId): void
   setOrphans(orphans: OrphanSession[]): void
   dismissNotice(): void
+  /** 훅 이벤트 반영 (SPEC 8.2). */
+  applyStatus(change: StatusChange): void
+  /** 노드에 포커스했을 때 (SPEC 8.1): unseen 해제, `done`은 `unknown`으로. */
+  markSeen(id: NodeId): void
 }
 
 function makeNode(
@@ -108,6 +122,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   missingSessions: new Set<NodeId>(),
   orphans: [],
   notice: null,
+  statuses: {},
 
   hydrate(workspace, notice) {
     set({
@@ -160,6 +175,49 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     set({ notice: null })
   },
 
+  applyStatus(change) {
+    set((state) => {
+      // 워크스페이스에 없는 노드의 이벤트는 버린다 (SPEC 8.5).
+      const node = state.nodes.find((n) => n.id === change.nodeId)
+      if (!node) return {}
+
+      const status: NodeStatus = {
+        nodeId: change.nodeId,
+        state: change.state,
+        unseen: isUnseenState(change.state),
+        at: change.at
+      }
+      const next: Partial<WorkspaceState> = {
+        statuses: { ...state.statuses, [change.nodeId]: status }
+      }
+
+      // SessionStart가 준 세션 id는 저장한다 — [이전 대화 이어서]에 쓴다 (SPEC 5.4).
+      if (change.claudeSessionId !== null && node.claudeSessionId !== change.claudeSessionId) {
+        next.nodes = state.nodes.map((n) =>
+          n.id === change.nodeId ? { ...n, claudeSessionId: change.claudeSessionId } : n
+        )
+      }
+      return next
+    })
+  },
+
+  markSeen(id) {
+    set((state) => {
+      const status = state.statuses[id]
+      if (!status || (!status.unseen && status.state !== 'done')) return {}
+      return {
+        statuses: {
+          ...state.statuses,
+          [id]: {
+            ...status,
+            unseen: false,
+            state: status.state === 'done' ? 'unknown' : status.state
+          }
+        }
+      }
+    })
+  },
+
   updateNode(id, patch) {
     set((state) => ({
       nodes: state.nodes.map((node) =>
@@ -178,6 +236,10 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
 
   setViewport(viewport) {
     set({ viewport })
+  },
+
+  setSettings(patch) {
+    set((state) => ({ settings: { ...state.settings, ...patch } }))
   }
 }))
 

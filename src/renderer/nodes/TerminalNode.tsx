@@ -20,6 +20,8 @@ function TerminalNode({ data, selected }: NodeProps<TerminalFlowNode>): React.JS
   const updateNode = useWorkspace((s) => s.updateNode)
   const sessionMissing = useWorkspace((s) => s.missingSessions.has(node.id))
   const markSessionStarted = useWorkspace((s) => s.markSessionStarted)
+  const status = useWorkspace((s) => s.statuses[node.id])
+  const markSeen = useWorkspace((s) => s.markSeen)
   const { setCenter } = useReactFlow()
 
   const zoomToNode = useCallback(() => {
@@ -43,7 +45,14 @@ function TerminalNode({ data, selected }: NodeProps<TerminalFlowNode>): React.JS
   }, [node.id, removeNode])
 
   return (
-    <div className="terminal-node" onMouseDown={() => focus(node.id)}>
+    <div
+      className="terminal-node"
+      onMouseDown={() => {
+        focus(node.id)
+        // SPEC 8.1: 포커스하면 unseen이 풀리고 `done`은 `unknown`으로 내려간다.
+        markSeen(node.id)
+      }}
+    >
       <NodeResizer
         isVisible={selected === true}
         minWidth={MIN_NODE_SIZE.width}
@@ -57,6 +66,8 @@ function TerminalNode({ data, selected }: NodeProps<TerminalFlowNode>): React.JS
       <NodeHeader
         node={node}
         sessionMissing={sessionMissing}
+        state={status?.state ?? 'unknown'}
+        unseen={status?.unseen ?? false}
         onZoomToNode={zoomToNode}
         onDetach={detachNode}
         onKill={killNode}

@@ -17,6 +17,7 @@
     "verify:terminal": "node scripts/check-terminal.mjs",
     "verify:canvas": "node scripts/check-canvas.mjs",
     "verify:persistence": "node scripts/check-persistence.mjs",
+    "verify:status": "node scripts/check-status.mjs",
     "lint": "eslint --cache .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

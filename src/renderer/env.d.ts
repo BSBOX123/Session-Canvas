@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 
 import type { Terminal } from '@xterm/xterm'
-import type { NodeId, TerminalNodeData } from '@shared/types'
+import type { NodeId, NodeStatus, TerminalNodeData } from '@shared/types'
 import type { NewNodeInput } from './state/workspace'
 
 declare global {
@@ -10,9 +10,11 @@ declare global {
     __sessionCanvas?: {
       readonly terminals: Record<NodeId, Terminal>
       readonly nodes: TerminalNodeData[]
+      readonly statuses: Readonly<Record<NodeId, NodeStatus>>
       addNode(input: NewNodeInput): NodeId
       updateNode(id: NodeId, patch: Partial<TerminalNodeData>): void
       removeNode(id: NodeId): void
+      markSeen(id: NodeId): void
       focus(id: NodeId): void
     }
   }

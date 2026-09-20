@@ -92,7 +92,7 @@ macOS에서 여러 Claude Code 세션을 동시에 돌릴 때 iTerm 창을 여�
 | D9 | 영속 저장 | **JSON 파일** (`app.getPath('userData')/workspace.json`) | DB 불필요 규모 |
 | D10 | 테스트 | **vitest** (단위), 수동 인수 체크리스트 (단계별) | |
 
-> D7 대안: `claude --settings <파일>` 로 앱 전용 훅만 주입하는 방식. 전역 설정을 건드리지 않는 장점이 있으나, 노드 안에서 사용자가 `claude`를 직접 다시 실행하면 훅이 빠진다. 단계 4에서 이 플래그의 동작(기존 hooks와 병합되는지)을 확인해 보고, 더 낫다면 D7을 개정한다.
+> D7 대안 **검토 완료 (단계 4)**: `claude --settings <파일>`은 공식 문서상 다른 설정 파일과 **병합**되며(키 단위로 덮어쓰고, 리스트형 키는 합쳐진다), 전역 설정을 건드리지 않는 장점이 있다. 그러나 **노드 안에서 사용자가 `claude`를 직접 다시 실행하면 그 플래그가 빠진다.** 설정 파일 위치를 가리키는 환경변수도 문서에 없다(`CLAUDE_CONFIG_DIR` 같은 것 없음). "노드 안에서 어떻게 실행하든 동작한다"가 이 기능의 핵심이므로 **D7을 유지한다.**
 
 ---
 
@@ -130,7 +130,8 @@ session-canvas/
 │  ├─ inspect-renderer.mjs           # 렌더러 스모크 확인 (14.3)
 │  ├─ check-terminal.mjs             # 터미널 기능 확인 (14.3)
 │  ├─ check-canvas.mjs               # 캔버스·다중 노드 확인 (14.3)
-│  └─ check-persistence.mjs          # tmux·영속성 확인 (14.3)
+│  ├─ check-persistence.mjs          # tmux·영속성 확인 (14.3)
+│  └─ check-status.mjs               # 상태 감지 확인 (14.3)
 ├─ src/
 │  ├─ shared/
 │  │  ├─ types.ts                    # 9장 데이터 모델
@@ -160,6 +161,9 @@ session-canvas/
 │     ├─ nodes/NewNodeDialog.tsx     # 7.2
 │     ├─ nodes/DetachedSession.tsx   # 5.4 "세션 없음"
 │     ├─ canvas/OrphanSessions.tsx   # 5.4 "분리된 세션"
+│     ├─ nodes/statusPresentation.ts # 8.1 기호·문구·색
+│     ├─ settings/SettingsPanel.tsx  # 8.4 동의 UI
+│     ├─ state/statusBridge.ts       # 8.5/8.6 상태·알림·배지
 │     ├─ devBridge.ts                # 개발 모드 점검 훅 (14.3)
 │     ├─ terminal/TerminalRegistry.ts
 │     ├─ terminal/XtermView.tsx
@@ -354,16 +358,43 @@ CSS transform으로 확대·축소된 터미널은 글자가 뭉개지므로, �
 - `waiting`, `done`은 **unseen** 플래그를 가진다. 사용자가 그 노드에 포커스하면 unseen이 해제되고, `done`은 `unknown`으로 내려간다.
 
 ### 8.2 이벤트 → 상태 매핑 (`mapEvent.ts`, 순수 함수)
+
+> **R1 확인 완료 (2026-09-20, Claude Code 2.1.278).** 공식 문서(`https://code.claude.com/docs/en/hooks`)와 **실제 훅 stdin 덤프**로 확인했다. 문서 설명과 실제 필드명이 다른 것이 있었으므로(아래 ⚠️) 아래 표는 **실측 기준**이다.
+
 | hook 이벤트 | 상태 | 추가 처리 |
 |---|---|---|
 | `SessionStart` | `unknown` | `session_id` → 노드의 `claudeSessionId`에 저장 (resume용) |
 | `UserPromptSubmit` | `working` | |
 | `PreToolUse`, `PostToolUse` | `working` | 권한 승인 후 `waiting` → `working` 복귀에 필요 |
-| `Notification` | `waiting` | |
+| `PermissionRequest` | `waiting` | 권한 결정이 필요할 때 발생. `Notification`보다 이르고 확실하다 |
+| `Notification` | `waiting` | `notification_type`이 `auth_success`·`elicitation_*`·`quota_*`면 무시. **필드가 없으면 `waiting`으로 본다** |
 | `Stop` | `done` | |
+| `StopFailure` | `done` | 오류로 끝난 턴도 사용자가 봐야 한다 |
 | `SessionEnd` | `unknown` | |
 
-> ⚠️ 이벤트 이름, stdin JSON 필드(`session_id`, `hook_event_name`, `cwd` 등), matcher 문법은 **단계 4 시작 시 공식 문서로 확인**하고 이 표를 고친다(R1). 모르는 이벤트는 무시한다(앱이 죽으면 안 됨).
+모르는 이벤트는 무시한다(앱이 죽으면 안 됨).
+
+**실측한 stdin JSON (2.1.278)** — 모든 이벤트 공통: `session_id`, `transcript_path`, `cwd`, `hook_event_name`. 대부분 `prompt_id`, `permission_mode`가 붙고, 도구 이벤트에는 `effort`가 붙는다.
+
+| 이벤트 | 고유 필드 |
+|---|---|
+| `SessionStart` | `source` (`startup`·`resume`·`clear`·`compact`·`fork`) |
+| `UserPromptSubmit` | `prompt` |
+| `PreToolUse` | `tool_name`, `tool_input`, `tool_use_id` |
+| `PermissionRequest` | `tool_name`, `tool_input`, `permission_suggestions` (`tool_use_id` 없음) |
+| `PostToolUse` | `tool_name`, `tool_input`, `tool_use_id` |
+| `Stop` | `stop_hook_active`, `last_assistant_message` |
+| `SessionEnd` | `reason` |
+
+> ⚠️ **문서 요약과 실제가 달랐던 것**: SessionStart의 이유는 `session_start_reason`이 아니라 **`source`**, UserPromptSubmit의 프롬프트는 `user_input`이 아니라 **`prompt`**, SessionEnd의 이유는 **`reason`**이다. `Notification`의 `notification_type`은 문서에만 있고 실측하지 못했다(headless `-p` 모드에서는 발생하지 않는다) — 그래서 필드가 없을 때도 안전하게 동작하도록 만든다.
+>
+> 이벤트 순서도 확인했다: `PreToolUse` → `PermissionRequest` 순이라, "작업 중 → 입력 대기" 전이가 자연스럽게 나온다.
+
+**settings.json 구조** (실제로 이 형태로 넣어 동작을 확인했다):
+```json
+{ "hooks": { "<이벤트>": [ { "hooks": [ { "type": "command", "command": "<절대경로>", "timeout": 5 } ] } ] } }
+```
+`matcher`를 빼면 그 이벤트 전체에 걸린다. 종료 코드 0 + stdout 없음이면 Claude Code 동작에 아무 영향이 없다(확인함).
 
 ### 8.3 훅 스크립트 `resources/hooks/session-canvas-hook.sh`
 - 외부 의존성 없음(jq 사용 금지). stdin JSON을 **그대로** 파일에 저장하고, 파싱은 앱이 한다.
@@ -399,7 +430,8 @@ exit 0
 ### 8.5 StatusWatcher
 - `~/.session-canvas/status/`를 감시(chokidar 또는 `fs.watch` + 디바운스 50ms). `.tmp.*`는 무시.
 - 파일 → JSON 파싱 → `mapEvent` → renderer에 `status:changed` 전송.
-- 앱 시작 시 기존 파일을 한 번 읽어 초기 상태로 쓴다. 단, 파일 mtime이 tmux 세션 생성 시각보다 오래되었으면 무시.
+- 앱 시작 시 기존 파일을 한 번 읽어 초기 상태로 쓴다. 단, 파일 mtime이 앱 시작 시각보다 오래되었으면 무시.
+- **이 mtime 규칙은 감시 이벤트에도 똑같이 적용한다.** macOS의 FSEvents는 감시를 시작하기 **직전**에 일어난 변경까지 전달하기 때문에, 시작 시 훑을 때만 걸러서는 지난번 실행이 남긴 상태가 되살아난다.
 - 워크스페이스에 없는 노드 id의 파일은 무시(삭제하지 않음).
 
 ### 8.6 알림
@@ -491,7 +523,11 @@ interface Api {
     save(ws: Workspace): void;                  // main에서 디바운스
   };
   status: {
-    onChange(cb: (s: NodeStatus & { claudeSessionId?: string }) => void): Unsubscribe;
+    onChange(cb: (s: {
+      nodeId: NodeId; state: SessionState; at: string; claudeSessionId: string | null;
+    }) => void): Unsubscribe;
+    // 워크스페이스에 없는 노드의 상태 파일은 무시해야 하므로(8.5) 목록을 알려 준다.
+    setKnownNodes(ids: NodeId[]): void;
   };
   tmux: {
     check(): Promise<{ ok: boolean; version: string | null }>;
@@ -501,11 +537,19 @@ interface Api {
   };
   hooks: {
     state(): Promise<'installed' | 'not-installed' | 'outdated'>;
-    install(): Promise<void>;
-    uninstall(): Promise<void>;
+    // 백업 경로를 돌려줘서 무엇을 어디에 백업했는지 사용자에게 보여준다(8.4).
+    install(): Promise<{ backup: string | null }>;
+    uninstall(): Promise<{ backup: string | null }>;
   };
   dialog: { pickDirectory(): Promise<string | null> };
-  app: { setBadge(n: number): void; onNotificationClick(cb: (id: NodeId) => void): Unsubscribe };
+  app: {
+    setBadge(n: number): void;
+    // "보여야 하는 상황인지"(창 활성·화면 밖·개요 단계)는 renderer만 알 수 있으므로
+    // 판단은 renderer가 하고 main은 띄우기만 한다.
+    notify(id: NodeId, title: string, state: SessionState): void;
+    setNotificationsEnabled(enabled: boolean): void;
+    onNotificationClick(cb: (id: NodeId) => void): Unsubscribe;
+  };
 }
 ```
 ```ts
@@ -579,6 +623,7 @@ type PtyOpenRequest = Pick<TerminalNodeData, 'id' | 'command'> & { cwd: string |
 - tmux가 설치된 환경에서만 실행(`describe.skipIf`): 세션 생성 → has-session → kill → 목록에서 사라짐. **전용 소켓 이름에 테스트용 접미사**를 붙여 실제 세션과 충돌하지 않게 한다.
 - 앱을 띄워서 하는 점검(14.3)도 같은 격리가 필요하다. 소켓은 환경변수 `SESSION_CANVAS_TMUX_SOCKET`으로, 워크스페이스 파일은 Electron의 `--user-data-dir`로 갈아끼운다.
 - 훅 스크립트: 임시 HOME으로 stdin 주입 → 상태 파일 생성 확인, 환경변수 없을 때 파일 미생성 확인, 잘못된 id 거부 확인.
+- `HookInstaller`도 경로를 전부 주입받아 임시 HOME에서만 검증한다. **자동 점검은 절대 진짜 `~/.claude/settings.json`을 건드리지 않는다.** 앱을 띄워서 하는 상태 감지 점검(`check-status.mjs`)은 전역 설치 대신 점검용 임시 폴더의 **프로젝트 설정**에 훅을 등록한다.
 
 ### 14.3 수동 인수 테스트
 12.1의 각 단계 완료 기준을 체크리스트로 `HANDOVER.md`에 기록하고 체크한다.
@@ -599,3 +644,5 @@ type PtyOpenRequest = Pick<TerminalNodeData, 'id' | 'command'> & { cwd: string |
 | v0.1.4 | 2026-09-20 | 단계 2 구현 중 개정: §7.1에 `NodeResizer`의 선택 상태 요구사항, §7.5에 React Flow `deleteKeyCode` 주의 추가. §4.2에 `nodes/NodeDescription.tsx`·`nodes/NewNodeDialog.tsx`·`devBridge.ts`·`scripts/check-canvas.mjs` 추가 |
 | v0.1.5 | 2026-09-20 | 단계 3 구현 중 개정: §10 `workspace.load`가 복구 상태·안내를 함께 주고 `tmux.listOrphans`가 세션 폴더까지 준다. §7.1에 닫기(분리)/세션 종료 선택과 네이티브 대화상자 금지 명시. §14.2에 점검용 소켓·userData 격리 방법 추가. §4.2에 `main/resources.ts`·`main/workspace/serialize.ts`·`nodes/DetachedSession.tsx`·`canvas/OrphanSessions.tsx`·`scripts/check-persistence.mjs` 추가 |
 | v0.1.6 | 2026-09-20 | 단계 3 R2 확인 결과 반영: §6.5 신설 — xterm이 Shift+Enter를 Enter와 구별하지 않으므로 `ESC CR`로 바꿔 보낸다. 기존 6.5(스크롤·선택)는 6.6으로 밀림 |
+| v0.1.7 | 2026-09-20 | 단계 4 R1 확인 완료: §8.2를 공식 문서 + 실제 stdin 덤프 기준으로 전면 개정(`PermissionRequest`·`StopFailure` 추가, 실측 필드명 표 추가, 문서와 다른 필드명 경고). D7 대안(`--settings`) 검토 결과 D7 유지 |
+| v0.1.8 | 2026-09-20 | 단계 4 구현 중 개정: §8.5에 mtime 규칙을 감시 이벤트에도 적용(FSEvents가 감시 직전 변경까지 전달). §10의 `status`·`hooks`·`app` 계약 구체화(`setKnownNodes`, 백업 경로 반환, `notify`/`setNotificationsEnabled`). §14.2에 훅 점검 격리 원칙. §4.2에 단계 4 파일 추가 |

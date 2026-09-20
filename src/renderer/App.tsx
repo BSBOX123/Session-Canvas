@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import Canvas from './canvas/Canvas'
 import { startPersistence, useWorkspace } from './state/workspace'
+import { startStatusBridge } from './state/statusBridge'
 
 type BootState =
   { phase: 'loading' } | { phase: 'no-tmux'; version: string | null } | { phase: 'ready' }
@@ -18,6 +19,7 @@ function App(): React.JSX.Element {
   useEffect(() => {
     let cancelled = false
     let stopPersistence: (() => void) | null = null
+    let stopStatusBridge: (() => void) | null = null
 
     const run = async (): Promise<void> => {
       // tmux가 없거나 낮으면 안내 화면을 띄운다. 앱이 죽으면 안 된다 (SPEC 4.3).
@@ -32,6 +34,7 @@ function App(): React.JSX.Element {
       if (cancelled) return
       hydrate(loaded.workspace, loaded.message)
       stopPersistence = startPersistence()
+      stopStatusBridge = startStatusBridge()
 
       // SPEC 5.4 복구 흐름
       const ids = loaded.workspace.nodes.map((node) => node.id)
@@ -47,6 +50,7 @@ function App(): React.JSX.Element {
     return () => {
       cancelled = true
       stopPersistence?.()
+      stopStatusBridge?.()
     }
   }, [hydrate, setMissingSessions, setOrphans])
 
