@@ -16,12 +16,23 @@ import OrphanSessions from './OrphanSessions'
 import SettingsPanel from '../settings/SettingsPanel'
 import { useWorkspace, type NewNodeInput } from '../state/workspace'
 import { focus } from '../terminal/TerminalRegistry'
+import { zoomLevelOf } from './zoomLevel'
+import { useShortcuts } from '../shortcuts/useShortcuts'
 
 /** 모듈 최상단에 두어야 매 렌더마다 새 객체가 되지 않는다. */
 const nodeTypes = { terminal: TerminalNode }
 
 /** 두 손가락 스크롤 팬 속도. React Flow 기본값 0.5는 트랙패드에서 답답하다. */
 const PAN_ON_SCROLL_SPEED = 1.2
+
+/** SPEC 8.1의 상태 색. 미니맵에서도 같은 색을 쓴다. */
+const STATUS_COLORS: Record<string, string> = {
+  unknown: '#2b3a4a',
+  working: '#6ba8ff',
+  waiting: '#ffa94d',
+  done: '#64c98a',
+  detached: '#3a3f47'
+}
 
 function CanvasInner(): React.JSX.Element {
   const nodes = useWorkspace((s) => s.nodes)
@@ -30,6 +41,17 @@ function CanvasInner(): React.JSX.Element {
   const setViewport = useWorkspace((s) => s.setViewport)
   const viewport = useWorkspace((s) => s.viewport)
   const notice = useWorkspace((s) => s.notice)
+  const setZoomLevel = useWorkspace((s) => s.setZoomLevel)
+  const statuses = useWorkspace((s) => s.statuses)
+  const missingSessions = useWorkspace((s) => s.missingSessions)
+
+  const miniMapColor = useCallback(
+    (flowNode: TerminalFlowNode): string => {
+      if (missingSessions.has(flowNode.id)) return STATUS_COLORS.detached
+      return STATUS_COLORS[statuses[flowNode.id]?.state ?? 'unknown'] ?? STATUS_COLORS.unknown
+    },
+    [missingSessions, statuses]
+  )
   const dismissNotice = useWorkspace((s) => s.dismissNotice)
   const { screenToFlowPosition, setCenter } = useReactFlow()
 
@@ -110,18 +132,21 @@ function CanvasInner(): React.JSX.Element {
     [addNode, dialogPosition]
   )
 
-  // SPEC 7.5: 앱 단축키는 Cmd 조합만 쓴다. Esc·Shift+Tab·Ctrl+*·Option+* 은
-  // 포커스된 터미널이 그대로 받아야 하므로 절대 가로채지 않는다.
+  useShortcuts({ openNewNodeDialog: openDialogAt })
+
+  // 개발 모드 점검용 (SPEC 14.3).
+  const { zoomTo } = useReactFlow()
   useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (!event.metaKey || event.ctrlKey || event.altKey) return
-      if (event.key.toLowerCase() !== 'n') return
-      event.preventDefault()
-      openDialogAt()
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [openDialogAt])
+    if (!import.meta.env.DEV) return
+    void import('../devBridge').then(({ registerCanvasDevHelpers }) => {
+      registerCanvasDevHelpers({
+        zoomTo: async (zoom: number) => {
+          await zoomTo(zoom, { duration: 0 })
+          setZoomLevel(zoomLevelOf(zoom))
+        }
+      })
+    })
+  }, [setZoomLevel, zoomTo])
 
   // 알림을 클릭하면 그 노드로 줌인한다 (SPEC 8.6).
   useEffect(() => {
@@ -148,7 +173,11 @@ function CanvasInner(): React.JSX.Element {
         nodes={flowNodes}
         nodeTypes={nodeTypes}
         onNodesChange={onNodesChange}
-        onMoveEnd={(_event, viewport: Viewport) => setViewport(viewport)}
+        onMove={(_event, viewport: Viewport) => setZoomLevel(zoomLevelOf(viewport.zoom))}
+        onMoveEnd={(_event, viewport: Viewport) => {
+          setViewport(viewport)
+          setZoomLevel(zoomLevelOf(viewport.zoom))
+        }}
         onDoubleClick={(event) => {
           // 빈 캔버스 더블클릭으로 생성 (SPEC 7.2).
           if ((event.target as HTMLElement).closest('.terminal-node') === null) {
@@ -172,7 +201,8 @@ function CanvasInner(): React.JSX.Element {
       >
         <Background gap={24} />
         <Controls showInteractive={false} />
-        <MiniMap pannable zoomable nodeColor="#2b3a4a" maskColor="rgba(0,0,0,0.5)" />
+        {/* SPEC 7.4: 미니맵은 노드를 상태 색으로 표시한다. */}
+        <MiniMap pannable zoomable nodeColor={miniMapColor} maskColor="rgba(0,0,0,0.5)" />
       </ReactFlow>
 
       <button

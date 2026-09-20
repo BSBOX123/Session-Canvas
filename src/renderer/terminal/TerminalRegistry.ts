@@ -13,6 +13,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { ClipboardAddon } from '@xterm/addon-clipboard'
 import { WebLinksAddon } from '@xterm/addon-web-links'
+import { WebglAddon } from '@xterm/addon-webgl'
 import '@xterm/xterm/css/xterm.css'
 import { DEFAULT_SETTINGS, type NodeId, type TerminalNodeData } from '@shared/types'
 
@@ -20,10 +21,89 @@ export interface TerminalEntry {
   terminal: Terminal
   fit: FitAddon
   host: HTMLDivElement
+  webgl: WebglAddon | null
 }
 
 const entries = new Map<NodeId, TerminalEntry>()
 let subscribed = false
+
+/**
+ * SPEC 6.3 — Chromium은 동시에 살아 있는 WebGL 컨텍스트 수에 제한이 있어
+ * (대략 16개) 넘으면 오래된 것부터 끊긴다. 그래서 **포커스된 노드 + 최근
+ * 포커스된 노드** 최대 `webglMax`개에만 WebGL을 붙이고 나머지는 DOM 렌더러로 둔다.
+ *
+ * 최근 포커스 순서(가장 최근이 앞).
+ */
+const recentlyFocused: NodeId[] = []
+let webglMax = DEFAULT_SETTINGS.webglMax
+/** 컨텍스트를 잃은 노드는 다시 붙이지 않는다 — 앱이 멈추면 안 된다. */
+const webglBlocked = new Set<NodeId>()
+
+export function setWebglMax(max: number): void {
+  webglMax = Math.max(0, Math.floor(max))
+  applyWebglPolicy()
+}
+
+/** WebGL을 붙여야 할 노드 목록 (최근 포커스 상위 `webglMax`개). */
+function webglTargets(): NodeId[] {
+  return recentlyFocused.filter((id) => entries.has(id) && !webglBlocked.has(id)).slice(0, webglMax)
+}
+
+function attachWebgl(entry: TerminalEntry, id: NodeId): void {
+  if (entry.webgl !== null || webglBlocked.has(id)) return
+  try {
+    const addon = new WebglAddon()
+    addon.onContextLoss(() => {
+      // 컨텍스트를 잃으면 조용히 DOM 렌더러로 되돌린다 (SPEC 6.3).
+      console.warn(`[session-canvas] WebGL 컨텍스트 손실 (${id}) → DOM 렌더러로 되돌립니다`)
+      webglBlocked.add(id)
+      detachWebgl(entry)
+    })
+    entry.terminal.loadAddon(addon)
+    entry.webgl = addon
+  } catch (error) {
+    console.warn(`[session-canvas] WebGL을 붙이지 못했습니다 (${id}):`, error)
+    webglBlocked.add(id)
+  }
+}
+
+function detachWebgl(entry: TerminalEntry): void {
+  if (entry.webgl === null) return
+  const addon = entry.webgl
+  entry.webgl = null
+  try {
+    addon.dispose()
+  } catch {
+    /* 이미 정리됐다 */
+  }
+}
+
+function applyWebglPolicy(): void {
+  const targets = new Set(webglTargets())
+  for (const [id, entry] of entries) {
+    if (targets.has(id)) attachWebgl(entry, id)
+    else detachWebgl(entry)
+  }
+}
+
+/** 어떤 노드가 포커스를 받았다. 최근 순서를 갱신하고 정책을 다시 적용한다. */
+function touch(id: NodeId): void {
+  const at = recentlyFocused.indexOf(id)
+  if (at === 0) return
+  if (at > 0) recentlyFocused.splice(at, 1)
+  recentlyFocused.unshift(id)
+  applyWebglPolicy()
+}
+
+/** 지금 포커스를 쥐고 있는 노드 (가장 최근에 포커스된 것). */
+export function focusedNode(): NodeId | null {
+  return recentlyFocused.find((id) => entries.has(id)) ?? null
+}
+
+/** 점검·디버깅용: 지금 WebGL이 붙어 있는 노드. */
+export function webglNodes(): NodeId[] {
+  return [...entries].filter(([, entry]) => entry.webgl !== null).map(([id]) => id)
+}
 
 /** 살아 있는 노드에만 출력을 흘린다. 앱 전체에서 한 번만 구독한다. */
 function subscribeOnce(): void {
@@ -107,8 +187,9 @@ export function acquire(node: TerminalNodeData, container: HTMLElement): Termina
   terminal.open(host)
   fit.fit()
 
-  const entry: TerminalEntry = { terminal, fit, host }
+  const entry: TerminalEntry = { terminal, fit, host, webgl: null }
   entries.set(node.id, entry)
+  touch(node.id)
 
   terminal.onData((data) => window.api.pty.write(node.id, data))
 
@@ -137,7 +218,10 @@ export function get(id: NodeId): TerminalEntry | undefined {
 }
 
 export function focus(id: NodeId): void {
-  entries.get(id)?.terminal.focus()
+  const entry = entries.get(id)
+  if (!entry) return
+  touch(id)
+  entry.terminal.focus()
 }
 
 /**
@@ -147,10 +231,24 @@ export function focus(id: NodeId): void {
  *    노드 닫기의 기본 동작이고, 그 세션은 "분리된 세션"으로 되살릴 수 있다.
  *  - `kill`: `tmux kill-session`까지 해서 세션을 완전히 끝낸다.
  */
+/** 포커스된 터미널의 글자 크기 (SPEC 7.5의 `Cmd+=`/`Cmd+-`). */
+export function changeFontSize(id: NodeId, delta: number): void {
+  const entry = entries.get(id)
+  if (!entry) return
+  const next = Math.min(32, Math.max(8, entry.terminal.options.fontSize ?? 13) + delta)
+  entry.terminal.options.fontSize = next
+  fitAndResize(id)
+}
+
 export function dispose(id: NodeId, mode: 'detach' | 'kill'): void {
   const entry = entries.get(id)
   if (!entry) return
   entries.delete(id)
+  const at = recentlyFocused.indexOf(id)
+  if (at >= 0) recentlyFocused.splice(at, 1)
+  webglBlocked.delete(id)
+  detachWebgl(entry)
+  applyWebglPolicy()
   void (mode === 'kill' ? window.api.pty.kill(id) : window.api.pty.detach(id))
   entry.terminal.dispose()
   entry.host.remove()

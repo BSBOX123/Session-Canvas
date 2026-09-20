@@ -23,7 +23,9 @@ export const CHANNELS = {
   appSetBadge: 'app:setBadge',
   appNotify: 'app:notify',
   appNotificationClick: 'app:notificationClick',
-  appSetNotifications: 'app:setNotifications'
+  appSetNotifications: 'app:setNotifications',
+  clipboardRead: 'clipboard:read',
+  clipboardWrite: 'clipboard:write'
 } as const
 
 /**
@@ -121,6 +123,16 @@ export interface AppApi {
   onNotificationClick(cb: (nodeId: NodeId) => void): Unsubscribe
 }
 
+/**
+ * 터미널 복사·붙여넣기 (SPEC 7.5의 `Cmd+C`/`Cmd+V`).
+ * xterm의 선택은 DOM 선택이 아니라서 브라우저 기본 동작으로는 복사되지 않고,
+ * `navigator.clipboard`는 권한에 걸릴 수 있어 Electron의 클립보드를 쓴다.
+ */
+export interface ClipboardApi {
+  read(): Promise<string>
+  write(text: string): void
+}
+
 export interface DialogApi {
   /** 디렉터리 선택 창. 취소하면 null (SPEC 7.2). */
   pickDirectory(): Promise<string | null>
@@ -133,5 +145,6 @@ export interface Api {
   status: StatusApi
   hooks: HooksApi
   app: AppApi
+  clipboard: ClipboardApi
   dialog: DialogApi
 }

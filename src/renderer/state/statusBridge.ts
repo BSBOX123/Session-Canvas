@@ -7,6 +7,7 @@
  *  - 창이 비활성일 때 `waiting`/`done`으로 **바뀐 순간**만 알림
  */
 import type { NodeId } from '@shared/types'
+import { setWebglMax } from '../terminal/TerminalRegistry'
 import { useWorkspace } from './workspace'
 
 export function startStatusBridge(): () => void {
@@ -29,6 +30,7 @@ export function startStatusBridge(): () => void {
   let lastKnown = ''
   let lastBadge = -1
   let lastNotifications: boolean | null = null
+  let lastWebglMax: number | null = null
 
   const offStore = store.subscribe((state) => {
     const ids = state.nodes.map((node) => node.id)
@@ -42,6 +44,11 @@ export function startStatusBridge(): () => void {
     if (badge !== lastBadge) {
       lastBadge = badge
       window.api.app.setBadge(badge)
+    }
+
+    if (state.settings.webglMax !== lastWebglMax) {
+      lastWebglMax = state.settings.webglMax
+      setWebglMax(state.settings.webglMax)
     }
 
     if (state.settings.notifications !== lastNotifications) {

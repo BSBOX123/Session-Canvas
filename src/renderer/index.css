@@ -667,3 +667,95 @@ body {
   color: var(--fg);
   cursor: pointer;
 }
+
+/* ── 줌 단계 (SPEC 7.3) ───────────────────────────────── */
+
+/* 미리보기 단계: 터미널은 보이지만 입력은 받지 않는다. */
+.terminal-node.zoom-preview .terminal-area,
+.terminal-node.zoom-preview .node-description {
+  pointer-events: none;
+}
+
+.terminal-node.zoom-preview {
+  cursor: zoom-in;
+}
+
+.terminal-node.zoom-overview {
+  cursor: zoom-in;
+}
+
+.node-overview {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 10px;
+  padding: 20px 24px;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+/* 멀리서도 읽혀야 한다 — 줌이 축소하는 만큼 크게 그린다. */
+.node-overview-title {
+  margin: 0;
+  font-size: 34px;
+  font-weight: 700;
+  line-height: 1.2;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.node-overview-description {
+  margin: 0;
+  font-size: 20px;
+  line-height: 1.4;
+  color: var(--fg-dim);
+  white-space: pre-wrap;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+
+.node-overview-status {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.node-overview-status.unknown {
+  color: var(--fg-dim);
+}
+.node-overview-status.working {
+  color: #6ba8ff;
+}
+.node-overview-status.waiting {
+  color: #ffa94d;
+}
+.node-overview-status.done {
+  color: #64c98a;
+}
+.node-overview-status.detached {
+  color: var(--fg-dim);
+}
+
+/* 개요 단계에서는 헤더도 크게. */
+.terminal-node.zoom-overview .node-header {
+  padding: 10px 14px;
+}
+
+.terminal-node.zoom-overview .node-title {
+  font-size: 18px;
+}
+
+.terminal-node.zoom-overview .node-badge {
+  font-size: 16px;
+  padding: 3px 10px 3px 8px;
+}
+
+.terminal-node.zoom-overview .node-actions {
+  display: none;
+}

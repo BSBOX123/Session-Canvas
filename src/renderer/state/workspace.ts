@@ -15,6 +15,7 @@ import {
   type Workspace
 } from '@shared/types'
 import { isUnseenState } from './isUnseenState'
+import type { ZoomLevel } from '../canvas/zoomLevel'
 
 /** SPEC 7.1: 최소 크기. */
 export const MIN_NODE_SIZE = { width: 360, height: 220 }
@@ -38,6 +39,8 @@ interface WorkspaceState extends Omit<Workspace, 'version'> {
   notice: string | null
   /** 노드별 상태 (SPEC 8.1). 저장하지 않는다 — 훅과 tmux에서 재구성한다. */
   statuses: Readonly<Record<NodeId, NodeStatus>>
+  /** 현재 줌 단계 (SPEC 7.3). 배율이 아니라 단계만 들고 있어야 재렌더가 적다. */
+  zoomLevel: ZoomLevel
 
   hydrate(workspace: Workspace, notice: string | null): void
   addNode(input: NewNodeInput): TerminalNodeData
@@ -47,6 +50,7 @@ interface WorkspaceState extends Omit<Workspace, 'version'> {
   removeNode(id: NodeId): void
   setViewport(viewport: Workspace['viewport']): void
   setSettings(patch: Partial<Workspace['settings']>): void
+  setZoomLevel(level: ZoomLevel): void
   setMissingSessions(ids: NodeId[]): void
   markSessionStarted(id: NodeId): void
   setOrphans(orphans: OrphanSession[]): void
@@ -123,6 +127,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   orphans: [],
   notice: null,
   statuses: {},
+  zoomLevel: 'detail',
 
   hydrate(workspace, notice) {
     set({
@@ -240,6 +245,12 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
 
   setSettings(patch) {
     set((state) => ({ settings: { ...state.settings, ...patch } }))
+  },
+
+  setZoomLevel(level) {
+    // 단계가 바뀔 때만 갱신한다. 배율마다 갱신하면 노드가 전부 다시 그려진다.
+    if (get().zoomLevel === level) return
+    set({ zoomLevel: level })
   }
 }))
 

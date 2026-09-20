@@ -48,6 +48,10 @@ const api: Api = {
     setNotificationsEnabled: (enabled) => ipcRenderer.send(CHANNELS.appSetNotifications, enabled),
     onNotificationClick: (cb) => subscribe<[NodeId]>(CHANNELS.appNotificationClick, cb)
   },
+  clipboard: {
+    read: () => ipcRenderer.invoke(CHANNELS.clipboardRead),
+    write: (text) => ipcRenderer.send(CHANNELS.clipboardWrite, text)
+  },
   dialog: {
     pickDirectory: () => ipcRenderer.invoke(CHANNELS.dialogPickDirectory)
   }

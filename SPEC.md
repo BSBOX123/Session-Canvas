@@ -131,7 +131,8 @@ session-canvas/
 │  ├─ check-terminal.mjs             # 터미널 기능 확인 (14.3)
 │  ├─ check-canvas.mjs               # 캔버스·다중 노드 확인 (14.3)
 │  ├─ check-persistence.mjs          # tmux·영속성 확인 (14.3)
-│  └─ check-status.mjs               # 상태 감지 확인 (14.3)
+│  ├─ check-status.mjs               # 상태 감지 확인 (14.3)
+│  └─ check-zoom.mjs                 # 줌 단계·성능 확인 (14.3)
 ├─ src/
 │  ├─ shared/
 │  │  ├─ types.ts                    # 9장 데이터 모델
@@ -164,6 +165,8 @@ session-canvas/
 │     ├─ nodes/statusPresentation.ts # 8.1 기호·문구·색
 │     ├─ settings/SettingsPanel.tsx  # 8.4 동의 UI
 │     ├─ state/statusBridge.ts       # 8.5/8.6 상태·알림·배지
+│     ├─ canvas/zoomLevel.ts        # 7.3 줌 단계 경계값
+│     ├─ nodes/NodeOverview.tsx     # 7.3 개요 단계 카드
 │     ├─ devBridge.ts                # 개발 모드 점검 훅 (14.3)
 │     ├─ terminal/TerminalRegistry.ts
 │     ├─ terminal/XtermView.tsx
@@ -257,7 +260,8 @@ set -g window-size latest
 ### 6.3 렌더러 정책 (WebGL 개수 제한)
 Chromium은 동시에 살아 있는 WebGL 컨텍스트 수에 제한이 있어(대략 16개), 넘으면 오래된 것부터 끊긴다.
 - **WebGL은 "포커스된 노드 + 최근 포커스된 노드" 최대 `WEBGL_MAX`(기본 4)개**에만 붙인다. 나머지는 DOM 렌더러.
-- `webglcontextlost` 발생 시 해당 노드를 DOM 렌더러로 되돌린다(앱이 멈추면 안 됨).
+- `webglcontextlost` 발생 시 해당 노드를 DOM 렌더러로 되돌리고, **그 노드에는 다시 붙이지 않는다**(같은 일이 반복되면 더 나빠진다). 앱이 멈추면 안 된다.
+- "최근 포커스" 순서는 `TerminalRegistry`가 들고 있고, 포커스가 바뀔 때마다 정책을 다시 적용한다.
 
 ### 6.4 터미널 인스턴스 보존
 React 노드가 언마운트되어도 터미널 버퍼가 사라지면 안 된다.
@@ -338,6 +342,10 @@ CSS transform으로 확대·축소된 터미널은 글자가 뭉개지므로, �
 | `Cmd+Enter` | 현재 노드 줌인 ↔ 직전 뷰로 복귀 토글 |
 | `Cmd+W` | 현재 노드 닫기(분리). 세션은 유지 |
 | `Cmd+C` / `Cmd+V` | 복사(선택 있을 때) / 붙여넣기 |
+
+- xterm의 선택은 DOM 선택이 아니라서 브라우저 기본 복사로는 잡히지 않고, `navigator.clipboard`는 권한에 걸릴 수 있다. **Electron의 클립보드를 IPC로 쓴다**(10장 `clipboard`).
+- `Cmd+C`는 **선택이 있을 때만** 가로챈다. 선택이 없으면 그대로 흘려보낸다.
+- 단축키는 **캡처 단계**에서 처리한다. xterm의 textarea가 먼저 삼키면 `Cmd` 조합이 오지 않는다.
 | `Cmd+=` / `Cmd+-` | 포커스된 터미널 글자 크기 |
 
 ---
@@ -541,6 +549,9 @@ interface Api {
     install(): Promise<{ backup: string | null }>;
     uninstall(): Promise<{ backup: string | null }>;
   };
+  // xterm 선택은 DOM 선택이 아니고 navigator.clipboard는 권한에 걸릴 수 있어
+  // Electron 클립보드를 쓴다 (7.5).
+  clipboard: { read(): Promise<string>; write(text: string): void };
   dialog: { pickDirectory(): Promise<string | null> };
   app: {
     setBadge(n: number): void;
@@ -646,3 +657,4 @@ type PtyOpenRequest = Pick<TerminalNodeData, 'id' | 'command'> & { cwd: string |
 | v0.1.6 | 2026-09-20 | 단계 3 R2 확인 결과 반영: §6.5 신설 — xterm이 Shift+Enter를 Enter와 구별하지 않으므로 `ESC CR`로 바꿔 보낸다. 기존 6.5(스크롤·선택)는 6.6으로 밀림 |
 | v0.1.7 | 2026-09-20 | 단계 4 R1 확인 완료: §8.2를 공식 문서 + 실제 stdin 덤프 기준으로 전면 개정(`PermissionRequest`·`StopFailure` 추가, 실측 필드명 표 추가, 문서와 다른 필드명 경고). D7 대안(`--settings`) 검토 결과 D7 유지 |
 | v0.1.8 | 2026-09-20 | 단계 4 구현 중 개정: §8.5에 mtime 규칙을 감시 이벤트에도 적용(FSEvents가 감시 직전 변경까지 전달). §10의 `status`·`hooks`·`app` 계약 구체화(`setKnownNodes`, 백업 경로 반환, `notify`/`setNotificationsEnabled`). §14.2에 훅 점검 격리 원칙. §4.2에 단계 4 파일 추가 |
+| v0.1.9 | 2026-09-20 | 단계 5 구현 중 개정: §6.3에 컨텍스트 손실 노드 재부착 금지·최근 포커스 관리 명시. §7.5에 `Cmd+C` 선택 조건·캡처 단계 처리·클립보드 경로 명시. §10에 `clipboard` API 추가. §4.2에 `canvas/zoomLevel.ts`·`nodes/NodeOverview.tsx`·`scripts/check-zoom.mjs` 추가 |

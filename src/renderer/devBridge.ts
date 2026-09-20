@@ -6,7 +6,18 @@
  */
 import type { NodeId, TerminalNodeData } from '@shared/types'
 import { useWorkspace, type NewNodeInput } from './state/workspace'
-import { debugTerminals, focus } from './terminal/TerminalRegistry'
+import { debugTerminals, focus, focusedNode, webglNodes } from './terminal/TerminalRegistry'
+
+/** 캔버스만 줄 수 있는 것들. `Canvas`가 마운트될 때 채운다. */
+interface CanvasDevHelpers {
+  zoomTo(zoom: number): Promise<void>
+}
+
+let canvasHelpers: CanvasDevHelpers | null = null
+
+export function registerCanvasDevHelpers(helpers: CanvasDevHelpers): void {
+  canvasHelpers = helpers
+}
 
 export function installDevBridge(): void {
   window.__sessionCanvas = {
@@ -20,10 +31,22 @@ export function installDevBridge(): void {
       return useWorkspace.getState().statuses
     },
     markSeen: (id: NodeId) => useWorkspace.getState().markSeen(id),
+    get zoomLevel() {
+      return useWorkspace.getState().zoomLevel
+    },
+    get webglNodes() {
+      return webglNodes()
+    },
+    get focusedNode() {
+      return focusedNode()
+    },
     addNode: (input: NewNodeInput) => useWorkspace.getState().addNode(input).id,
     updateNode: (id: NodeId, patch: Partial<TerminalNodeData>) =>
       useWorkspace.getState().updateNode(id, patch),
     removeNode: (id: NodeId) => useWorkspace.getState().removeNode(id),
-    focus
+    focus,
+    // 휠 한 칸이 미리보기 구간(0.4~0.75)을 건너뛰어서, 점검이 배율을
+    // 정확히 지정할 수 있어야 한다.
+    zoomTo: (zoom: number) => canvasHelpers?.zoomTo(zoom) ?? Promise.resolve()
   }
 }

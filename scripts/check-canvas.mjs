@@ -284,6 +284,18 @@ try {
   })
   await sleep(500)
 
+  // 단계 5부터 미리보기·개요 단계에서는 터미널이 입력을 받지 않는다(SPEC 7.3).
+  // 아래 확인들은 상세 단계가 전제다. `Cmd+1`(첫 노드로 줌인)로 배율을 1로
+  // 되돌리면서 대상 노드를 화면 가운데로 가져온다 — 화면 밖에 있으면
+  // 리사이즈 핸들을 드래그할 수 없다.
+  const metaKey = async (code, k, vk) => {
+    const base = { code, key: k, windowsVirtualKeyCode: vk, nativeVirtualKeyCode: vk, modifiers: 4 }
+    await send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...base })
+    await send('Input.dispatchKeyEvent', { type: 'keyUp', ...base })
+    await sleep(600)
+  }
+  await metaKey('Digit1', '1', 49)
+
   // ── Esc / Shift+Tab 전달 (SPEC 7.5) ──────────────────
   await evaluate(`(${term(target)}.focus(), 1)`)
   await write(target, 'cat -v\r')

@@ -3,7 +3,7 @@
  */
 import { statSync } from 'node:fs'
 import { isAbsolute } from 'node:path'
-import { BrowserWindow, dialog, ipcMain, type IpcMainInvokeEvent } from 'electron'
+import { BrowserWindow, clipboard, dialog, ipcMain, type IpcMainInvokeEvent } from 'electron'
 import { CHANNELS, type PtyOpenRequest } from '../shared/ipc'
 import { MAX_COMMAND_LENGTH, NODE_ID_PATTERN, type NodeId, type Workspace } from '../shared/types'
 import type { OpenDialogOptions } from 'electron'
@@ -155,6 +155,14 @@ export function registerIpcHandlers({
       title: typeof title === 'string' ? title.slice(0, 120) : '',
       state
     })
+  })
+
+  ipcMain.handle(CHANNELS.clipboardRead, () => clipboard.readText())
+
+  ipcMain.on(CHANNELS.clipboardWrite, (_event, text: unknown) => {
+    if (typeof text !== 'string') return
+    // 터무니없이 큰 값으로 클립보드를 채우지 않는다 (SPEC 11).
+    clipboard.writeText(text.slice(0, 1_000_000))
   })
 
   ipcMain.handle(CHANNELS.dialogPickDirectory, async () => {
