@@ -23,11 +23,18 @@ export interface TerminalNodeData {
   updatedAt: string
 }
 
+/** 화면 테마 (SPEC 9.1). `preset`은 배경 계열, `accent`는 강조색. */
+export interface ThemeSettings {
+  preset: string
+  accent: string
+}
+
 export interface WorkspaceSettings {
   webglMax: number
   notifications: boolean
   fontFamily: string
   fontSize: number
+  theme: ThemeSettings
 }
 
 export interface Workspace {
@@ -42,7 +49,8 @@ export const DEFAULT_SETTINGS: WorkspaceSettings = {
   webglMax: 4,
   notifications: true,
   fontFamily: '"D2Coding", "Sarasa Mono K", Menlo, monospace',
-  fontSize: 13
+  fontSize: 13,
+  theme: { preset: 'dark', accent: '#4c8dff' }
 }
 
 export type SessionState = 'unknown' | 'working' | 'waiting' | 'done' | 'detached'

@@ -4,6 +4,7 @@
  * `scripts/check-*.mjs`가 CDP로 캔버스를 조작하고 xterm 버퍼를 읽는 데 쓴다.
  * `import.meta.env.DEV` 가드 안에서만 import되므로 프로덕션 번들에는 없다.
  */
+import type { StatusChange } from '@shared/ipc'
 import type { NodeId, TerminalNodeData, Workspace } from '@shared/types'
 import { useWorkspace, type NewNodeInput } from './state/workspace'
 import { debugTerminals, focus, focusedNode, webglNodes } from './terminal/TerminalRegistry'
@@ -31,6 +32,7 @@ export function installDevBridge(): void {
       return useWorkspace.getState().statuses
     },
     markSeen: (id: NodeId) => useWorkspace.getState().markSeen(id),
+    applyStatus: (change: StatusChange) => useWorkspace.getState().applyStatus(change),
     setSettings: (patch: Partial<Workspace['settings']>) =>
       useWorkspace.getState().setSettings(patch),
     setMissingSessions: (ids: NodeId[]) => useWorkspace.getState().setMissingSessions(ids),

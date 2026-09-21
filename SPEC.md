@@ -361,14 +361,18 @@ CSS transform으로 확대·축소된 터미널은 글자가 뭉개지므로, �
 ### 8.1 상태 정의
 색만으로 전달하지 않는다. **기호 + 문구 + 색**을 함께 표시한다.
 
-| 상태 | 기호 | 문구 | 색 | 의미 |
+| 상태 | 기호 | 문구 | 테두리 색 | 의미 |
 |---|---|---|---|---|
-| `unknown` | ○ | 대기 | 회색 | Claude Code 외 명령, 또는 아직 이벤트 없음 |
+| `unknown` | ○ | 대기 | 흰색 | Claude Code 외 명령, 또는 아직 이벤트 없음 |
 | `working` | ◐ | 작업 중 | 파랑 | 프롬프트 제출 후 도구 실행 중 |
-| `waiting` | ● | 입력 대기 | 주황, 테두리 펄스 | 권한 요청·입력 대기 알림 |
-| `done` | ✓ | 완료 | 초록 | 응답 종료, 아직 확인 안 함 |
+| `waiting` | ● | 입력 대기 | 주황 + 깜빡임 | 권한 요청·입력 대기 알림 |
+| `done` | ✓ | 완료 | 초록 + 깜빡임(느리게) | 응답 종료, 아직 확인 안 함 |
 | `detached` | – | 세션 없음 | 회색 점선 | tmux 세션이 없음 (5.4) |
 
+- **상태는 노드 테두리 전체로 보여 준다.** 두께 3px. 멀리서도 어느 노드가 나를 기다리는지 한눈에 보여야 한다(1.2의 목표 3).
+- 깜빡임은 **unseen일 때만** 한다. 포커스해서 확인하면 멈춘다. `prefers-reduced-motion`이면 깜빡이지 않고 테두리 바깥 링으로 대신한다.
+- 선택 표시는 테두리가 아니라 **바깥쪽 링(outline)** 으로 그린다 — 선택했다고 상태 색을 잃으면 안 된다.
+- 상태 색은 **테마(9.1)와 무관하게 고정**이다. 테마를 바꿨다고 상태를 못 알아보면 안 된다.
 - `waiting`, `done`은 **unseen** 플래그를 가진다. 사용자가 그 노드에 포커스하면 unseen이 해제되고, `done`은 `unknown`으로 내려간다.
 
 ### 8.2 이벤트 → 상태 매핑 (`mapEvent.ts`, 순수 함수)
@@ -487,6 +491,7 @@ export interface Workspace {
     notifications: boolean;      // 기본 true
     fontFamily: string;
     fontSize: number;            // 기본 13
+    theme: { preset: string; accent: string };  // 기본 dark / #4c8dff
   };
 }
 
@@ -500,6 +505,8 @@ export interface NodeStatus {
 }
 ```
 - **상태(`NodeStatus`)는 저장하지 않는다.** 상태 파일과 tmux에서 매번 재구성한다.
+- `theme.preset`은 배경 계열(`dark`·`midnight`·`graphite`·`forest`·`latte`), `accent`는 강조색이다. 화면은 CSS 변수로, 터미널은 xterm의 `theme` 옵션으로 같은 값을 받는다 — 터미널은 자기 배경을 직접 그리므로 CSS만 바꾸면 노드 안이 따로 논다.
+- 설정에 없던 필드(예전 파일의 `theme`)는 로드할 때 기본값으로 채운다(9.2의 마이그레이션).
 
 ### 9.2 저장
 - 위치: `app.getPath('userData')/workspace.json`
@@ -666,3 +673,4 @@ type PtyOpenRequest = Pick<TerminalNodeData, 'id' | 'command'> & { cwd: string |
 | v0.1.9 | 2026-09-20 | 단계 5 구현 중 개정: §6.3에 컨텍스트 손실 노드 재부착 금지·최근 포커스 관리 명시. §7.5에 `Cmd+C` 선택 조건·캡처 단계 처리·클립보드 경로 명시. §10에 `clipboard` API 추가. §4.2에 `canvas/zoomLevel.ts`·`nodes/NodeOverview.tsx`·`scripts/check-zoom.mjs` 추가 |
 | v0.1.10 | 2026-09-20 | §0.6 개정: 커밋 메시지를 영어에서 사용자 전역 규칙의 `타입 : 한국어 설명` 형식으로 바꾸고, 브랜치·커밋 승인 규칙을 명시. 이 프로젝트에 `AGENTS.md`가 없어 전역 규칙이 적용된다 |
 | v0.1.11 | 2026-09-20 | 단계 6 구현 중 개정: §4.3·§4.4에 패키징 앱 확인 결과와 확인 방법 기록. §5.4에 [이전 대화 이어서] 구현 방식 명시. §4.2에 `main/git/GitService.ts`·`nodes/NodeLocation.tsx`·`scripts/check-polish.mjs` 추가 |
+| v0.1.12 | 2026-09-21 | 사용자 요청 반영: §8.1에서 상태를 노드 테두리(3px)로 표시하고 `unknown`을 흰색으로, `waiting`·`done`은 unseen일 때 깜빡이게 했다. 선택 표시는 outline으로 분리. §9.1 `settings.theme`(preset·accent) 추가 — 화면과 터미널 색을 함께 바꾼다 |

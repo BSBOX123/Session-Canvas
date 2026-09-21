@@ -25,6 +25,8 @@ function TerminalNode({ data, selected }: NodeProps<TerminalFlowNode>): React.JS
   const status = useWorkspace((s) => s.statuses[node.id])
   const markSeen = useWorkspace((s) => s.markSeen)
   const zoomLevel = useWorkspace((s) => s.zoomLevel)
+  // 테두리 색·깜빡임이 상태를 나타낸다 (SPEC 8.1).
+  const displayState = sessionMissing ? 'detached' : (status?.state ?? 'unknown')
   const { setCenter } = useReactFlow()
 
   const zoomToNode = useCallback(() => {
@@ -87,7 +89,9 @@ function TerminalNode({ data, selected }: NodeProps<TerminalFlowNode>): React.JS
 
   return (
     <div
-      className={`terminal-node zoom-${zoomLevel}`}
+      className={`terminal-node zoom-${zoomLevel} state-${displayState}${
+        status?.unseen ? ' unseen' : ''
+      }`}
       onMouseDown={() => {
         // 상세 단계가 아니면 클릭이 곧 "이 노드로 줌인"이다 (SPEC 7.3).
         if (!acceptsInput(zoomLevel)) {
@@ -119,10 +123,7 @@ function TerminalNode({ data, selected }: NodeProps<TerminalFlowNode>): React.JS
       {zoomLevel === 'overview' ? (
         // 개요 단계: 터미널을 아예 그리지 않는다. 버퍼는 TerminalRegistry가
         // 들고 있으므로(SPEC 6.4) 다시 확대해도 내용이 그대로다.
-        <NodeOverview
-          node={node}
-          state={sessionMissing ? 'detached' : (status?.state ?? 'unknown')}
-        />
+        <NodeOverview node={node} state={displayState} />
       ) : (
         <>
           <NodeDescription node={node} />

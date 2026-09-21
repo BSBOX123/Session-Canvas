@@ -7,7 +7,8 @@
  *  - 창이 비활성일 때 `waiting`/`done`으로 **바뀐 순간**만 알림
  */
 import type { NodeId } from '@shared/types'
-import { applyFontSettings, setWebglMax } from '../terminal/TerminalRegistry'
+import { applyFontSettings, applyTerminalTheme, setWebglMax } from '../terminal/TerminalRegistry'
+import { applyThemeToDocument } from '../theme'
 import { useWorkspace } from './workspace'
 
 /**
@@ -49,9 +50,10 @@ export function startStatusBridge(): () => void {
   let lastBadge = -1
   let lastNotifications: boolean | null = null
   let lastFont = ''
+  let lastTheme = ''
   let lastWebglMax: number | null = null
 
-  const offStore = store.subscribe((state) => {
+  const sync = (state: ReturnType<typeof store.getState>): void => {
     const ids = state.nodes.map((node) => node.id)
     const known = ids.join(',')
     if (known !== lastKnown) {
@@ -63,6 +65,13 @@ export function startStatusBridge(): () => void {
     if (badge !== lastBadge) {
       lastBadge = badge
       window.api.app.setBadge(badge)
+    }
+
+    const theme = `${state.settings.theme.preset}|${state.settings.theme.accent}`
+    if (theme !== lastTheme) {
+      lastTheme = theme
+      applyThemeToDocument(state.settings.theme)
+      applyTerminalTheme(state.settings.theme)
     }
 
     const font = `${state.settings.fontFamily}|${state.settings.fontSize}`
@@ -80,7 +89,12 @@ export function startStatusBridge(): () => void {
       lastNotifications = state.settings.notifications
       window.api.app.setNotificationsEnabled(state.settings.notifications)
     }
-  })
+  }
+
+  // 불러온 워크스페이스의 설정을 **지금 한 번** 반영한다. 구독만 걸어 두면
+  // 다음 변경이 올 때까지 기본 테마로 떠 있게 된다.
+  sync(store.getState())
+  const offStore = store.subscribe(sync)
 
   const offClick = window.api.app.onNotificationClick((nodeId: NodeId) => {
     store.getState().markSeen(nodeId)

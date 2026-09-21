@@ -16,6 +16,8 @@ import { WebLinksAddon } from '@xterm/addon-web-links'
 import { WebglAddon } from '@xterm/addon-webgl'
 import '@xterm/xterm/css/xterm.css'
 import { DEFAULT_SETTINGS, type NodeId, type TerminalNodeData } from '@shared/types'
+import type { ThemeSettings } from '@shared/types'
+import { terminalTheme } from '../theme'
 
 export interface TerminalEntry {
   terminal: Terminal
@@ -35,9 +37,23 @@ let subscribed = false
  * 최근 포커스 순서(가장 최근이 앞).
  */
 const recentlyFocused: NodeId[] = []
+/** 새로 만드는 터미널에도 같은 테마를 준다. */
+let currentTheme: ThemeSettings = { ...DEFAULT_SETTINGS.theme }
 let webglMax = DEFAULT_SETTINGS.webglMax
 /** 컨텍스트를 잃은 노드는 다시 붙이지 않는다 — 앱이 멈추면 안 된다. */
 const webglBlocked = new Set<NodeId>()
+
+/**
+ * 테마 색을 살아 있는 터미널 전부에 적용한다 (SPEC 9.1).
+ * 터미널은 자기 배경을 직접 그리므로 CSS 변수만 바꿔서는 안 바뀐다.
+ */
+export function applyTerminalTheme(theme: ThemeSettings): void {
+  const colors = terminalTheme(theme)
+  currentTheme = theme
+  for (const entry of entries.values()) {
+    entry.terminal.options.theme = colors
+  }
+}
 
 /** 설정의 폰트·크기를 살아 있는 터미널 전부에 적용한다 (SPEC 9.1). */
 export function applyFontSettings(fontFamily: string, fontSize: number): void {
@@ -141,7 +157,7 @@ function createTerminal(id: NodeId): { terminal: Terminal; fit: FitAddon } {
     macOptionIsMeta: false,
     cursorBlink: true,
     scrollback: 10_000,
-    theme: { background: '#14161a', foreground: '#e6e8eb' }
+    theme: terminalTheme(currentTheme)
   })
 
   const fit = new FitAddon()

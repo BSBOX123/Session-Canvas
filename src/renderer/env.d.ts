@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 
 import type { Terminal } from '@xterm/xterm'
+import type { StatusChange } from '@shared/ipc'
 import type { NodeId, NodeStatus, TerminalNodeData, Workspace } from '@shared/types'
 import type { NewNodeInput } from './state/workspace'
 
@@ -18,6 +19,7 @@ declare global {
       updateNode(id: NodeId, patch: Partial<TerminalNodeData>): void
       removeNode(id: NodeId): void
       markSeen(id: NodeId): void
+      applyStatus(change: StatusChange): void
       setSettings(patch: Partial<Workspace['settings']>): void
       setMissingSessions(ids: NodeId[]): void
       focus(id: NodeId): void

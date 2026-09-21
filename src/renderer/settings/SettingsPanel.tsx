@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { HookInstallState } from '@shared/ipc'
+import { ACCENT_CHOICES, THEME_PRESETS } from '../theme'
 import { useWorkspace } from '../state/workspace'
 
 const STATE_LABEL: Record<HookInstallState, string> = {
@@ -149,6 +150,46 @@ function SettingsPanel({ onClose }: { onClose(): void }): React.JSX.Element {
           </label>
           <p className="settings-hint">
             창이 비활성이거나, 그 노드가 화면 밖 또는 개요 단계일 때만 알립니다.
+          </p>
+        </section>
+
+        <section>
+          <h3>테마</h3>
+          <div className="theme-presets">
+            {Object.entries(THEME_PRESETS).map(([key, palette]) => (
+              <button
+                key={key}
+                type="button"
+                className={`theme-preset${settings.theme.preset === key ? ' selected' : ''}`}
+                onClick={() => setSettings({ theme: { ...settings.theme, preset: key } })}
+                title={palette.name}
+              >
+                <span className="theme-swatches">
+                  <span style={{ background: palette.bg }} />
+                  <span style={{ background: palette.panel2 }} />
+                  <span style={{ background: palette.fg }} />
+                </span>
+                {palette.name}
+              </button>
+            ))}
+          </div>
+
+          <label>강조색</label>
+          <div className="accent-choices">
+            {ACCENT_CHOICES.map((accent) => (
+              <button
+                key={accent}
+                type="button"
+                className={`accent-choice${settings.theme.accent === accent ? ' selected' : ''}`}
+                style={{ background: accent }}
+                onClick={() => setSettings({ theme: { ...settings.theme, accent } })}
+                title={accent}
+              />
+            ))}
+          </div>
+          <p className="settings-hint">
+            상태 테두리 색(흰색·파랑·주황·초록)은 테마와 무관하게 유지됩니다 — 상태를 색으로
+            알아보는 게 먼저라서입니다.
           </p>
         </section>
 
