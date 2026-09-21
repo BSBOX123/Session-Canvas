@@ -9,6 +9,7 @@ import { MAX_COMMAND_LENGTH, NODE_ID_PATTERN, type NodeId, type Workspace } from
 import type { OpenDialogOptions } from 'electron'
 import type { PtyManager } from './pty/PtyManager'
 import type { TmuxService } from './tmux/TmuxService'
+import type { GitService } from './git/GitService'
 import type { HookInstaller } from './hooks/HookInstaller'
 import type { Notifier } from './notify/Notifier'
 import type { StatusWatcher } from './status/StatusWatcher'
@@ -62,6 +63,7 @@ function assertOpenRequest(value: unknown): PtyOpenRequest {
 export interface IpcDeps {
   pty: PtyManager
   tmux: TmuxService
+  git: GitService
   store: WorkspaceStore
   status: StatusWatcher
   hooks: HookInstaller
@@ -72,6 +74,7 @@ export interface IpcDeps {
 export function registerIpcHandlers({
   pty,
   tmux,
+  git,
   store,
   status,
   hooks,
@@ -163,6 +166,13 @@ export function registerIpcHandlers({
     if (typeof text !== 'string') return
     // 터무니없이 큰 값으로 클립보드를 채우지 않는다 (SPEC 11).
     clipboard.writeText(text.slice(0, 1_000_000))
+  })
+
+  ipcMain.handle(CHANNELS.gitBranch, (_event, cwd: unknown) => {
+    // 존재하는 디렉터리만 넘긴다 (SPEC 11).
+    if (typeof cwd !== 'string' || !isAbsolute(cwd)) return null
+    if (!statSync(cwd, { throwIfNoEntry: false })?.isDirectory()) return null
+    return git.branch(cwd)
   })
 
   ipcMain.handle(CHANNELS.dialogPickDirectory, async () => {

@@ -2,7 +2,7 @@ import { memo, useCallback } from 'react'
 import { NodeResizer, useReactFlow, type NodeProps, type Node } from '@xyflow/react'
 import type { TerminalNodeData } from '@shared/types'
 import { MIN_NODE_SIZE, useWorkspace } from '../state/workspace'
-import { dispose, fitAndResize, focus } from '../terminal/TerminalRegistry'
+import { dispose, fitAndResize, focus, focusedNode } from '../terminal/TerminalRegistry'
 import XtermView from '../terminal/XtermView'
 import NodeHeader from './NodeHeader'
 import NodeDescription from './NodeDescription'
@@ -25,6 +25,8 @@ function TerminalNode({ data, selected }: NodeProps<TerminalFlowNode>): React.JS
   const status = useWorkspace((s) => s.statuses[node.id])
   const markSeen = useWorkspace((s) => s.markSeen)
   const zoomLevel = useWorkspace((s) => s.zoomLevel)
+  // 테두리 색·깜빡임이 상태를 나타낸다 (SPEC 8.1).
+  const displayState = sessionMissing ? 'detached' : (status?.state ?? 'unknown')
   const { setCenter } = useReactFlow()
 
   const zoomToNode = useCallback(() => {
@@ -35,6 +37,43 @@ function TerminalNode({ data, selected }: NodeProps<TerminalFlowNode>): React.JS
       ZOOM_TO_NODE
     ).then(() => focus(node.id))
   }, [node.id, node.position.x, node.position.y, node.size.width, node.size.height, setCenter])
+
+  /**
+   * 이전 Claude Code 대화를 이어서 새 세션을 띄운다 (SPEC 5.4).
+   * `command`를 `claude --resume <id>`로 바꾸면 다음 `pty.open`이 그걸 쓴다.
+   */
+  const resumeSession = useCallback(() => {
+    if (node.claudeSessionId === null) return
+    updateNode(node.id, { command: `claude --resume ${node.claudeSessionId}` })
+    markSessionStarted(node.id)
+  }, [node.claudeSessionId, node.id, markSessionStarted, updateNode])
+
+  /**
+   * 리사이즈 중 크기·위치를 반영한다.
+   *
+   * ⚠️ **이 콜백은 반드시 고정(useCallback)되어야 한다.** React Flow의
+   * `ResizeControl`은 `onResize`/`onResizeEnd`를 effect 의존성에 넣어서,
+   * 매 렌더마다 새 함수를 주면 드래그 도중 리사이저를 destroy → update 한다.
+   * 그러면 기준점(startValues)이 초기화되어 크기가 제멋대로 튄다.
+   */
+  const applyResize = useCallback(
+    (_event: unknown, params: { x: number; y: number; width: number; height: number }) => {
+      updateNode(node.id, {
+        position: { x: params.x, y: params.y },
+        size: { width: params.width, height: params.height }
+      })
+    },
+    [node.id, updateNode]
+  )
+
+  const finishResize = useCallback(
+    (_event: unknown, params: { x: number; y: number; width: number; height: number }) => {
+      applyResize(_event, params)
+      // fit → pty.resize (SPEC 7.1)
+      fitAndResize(node.id)
+    },
+    [applyResize, node.id]
+  )
 
   /** 닫기(분리): PTY만 끊고 tmux 세션은 살려 둔다 (SPEC 5.3). */
   const detachNode = useCallback(() => {
@@ -50,7 +89,9 @@ function TerminalNode({ data, selected }: NodeProps<TerminalFlowNode>): React.JS
 
   return (
     <div
-      className={`terminal-node zoom-${zoomLevel}`}
+      className={`terminal-node zoom-${zoomLevel} state-${displayState}${
+        status?.unseen ? ' unseen' : ''
+      }`}
       onMouseDown={() => {
         // 상세 단계가 아니면 클릭이 곧 "이 노드로 줌인"이다 (SPEC 7.3).
         if (!acceptsInput(zoomLevel)) {
@@ -66,17 +107,15 @@ function TerminalNode({ data, selected }: NodeProps<TerminalFlowNode>): React.JS
         isVisible={selected === true}
         minWidth={MIN_NODE_SIZE.width}
         minHeight={MIN_NODE_SIZE.height}
-        onResize={(_event, params) => {
-          updateNode(node.id, { size: { width: params.width, height: params.height } })
-        }}
-        // 리사이즈가 끝나면 fit → pty.resize (SPEC 7.1).
-        onResizeEnd={() => fitAndResize(node.id)}
+        onResize={applyResize}
+        onResizeEnd={finishResize}
       />
       <NodeHeader
         node={node}
         sessionMissing={sessionMissing}
         state={status?.state ?? 'unknown'}
         unseen={status?.unseen ?? false}
+        focused={focusedNode() === node.id}
         onZoomToNode={zoomToNode}
         onDetach={detachNode}
         onKill={killNode}
@@ -84,15 +123,16 @@ function TerminalNode({ data, selected }: NodeProps<TerminalFlowNode>): React.JS
       {zoomLevel === 'overview' ? (
         // 개요 단계: 터미널을 아예 그리지 않는다. 버퍼는 TerminalRegistry가
         // 들고 있으므로(SPEC 6.4) 다시 확대해도 내용이 그대로다.
-        <NodeOverview
-          node={node}
-          state={sessionMissing ? 'detached' : (status?.state ?? 'unknown')}
-        />
+        <NodeOverview node={node} state={displayState} />
       ) : (
         <>
           <NodeDescription node={node} />
           {sessionMissing ? (
-            <DetachedSession node={node} onStart={() => markSessionStarted(node.id)} />
+            <DetachedSession
+              node={node}
+              onStart={() => markSessionStarted(node.id)}
+              onResume={resumeSession}
+            />
           ) : (
             <XtermView node={node} />
           )}

@@ -17,7 +17,7 @@
 3. **13장 "확인 필요" 항목은 추측으로 구현하지 않는다.** 공식 문서나 실제 실행으로 확인한 뒤 구현하고, 확인 결과를 문서에 반영한다. 특히 Claude Code hooks 스키마(R1)는 반드시 최신 공식 문서(`https://docs.claude.com/en/docs/claude-code/hooks`)로 확인한다.
 4. **사용자 전역 설정을 함부로 건드리지 않는다.** `~/.claude/settings.json`, `~/.tmux.conf`, `~/.zshrc` 등 앱 밖의 파일은 수정하지 않는다. 유일한 예외는 8.4의 훅 설치이며, 앱 UI에서 사용자가 명시적으로 동의했을 때만 백업 후 수행한다. 개발 중 테스트도 임시 HOME 또는 fixture 파일로 한다.
 5. TypeScript `strict: true`, **`any` 금지**, React는 Function Component만 사용한다.
-6. 사용자와의 대화·UI 문구는 한국어, 코드 식별자·커밋 메시지는 영어로 쓴다.
+6. 사용자와의 대화·UI 문구는 한국어, 코드 식별자·주석은 각각 영어·한국어로 쓴다. **커밋 메시지는 사용자 전역 규칙(`~/.claude/CLAUDE.md`)을 따라 `타입 : 한국어 설명` 형식으로 쓴다** (타입: feat, fix, chore, docs, refactor, test). 작업은 `main`이 아니라 새 브랜치에서 하고, 커밋 전에 사용자에게 묻는다. **푸시는 자주 한다** — 커밋마다는 아니어도 2~3개가 쌓이거나 독립된 기능 하나를 더하거나 뺄 때마다, 무엇을 했는지 한 줄로 알리고 푸시한다. 작업 과정이 기록으로 남아야 한다.
 
 ---
 
@@ -127,12 +127,14 @@ session-canvas/
 │  └─ hooks/session-canvas-hook.sh   # 8.3
 ├─ scripts/
 │  ├─ lib/cdp.mjs                    # CDP 점검 공용 도구 (14.3)
+│  ├─ dev-isolated.mjs               # 격리 개발 모드 (14.2)
 │  ├─ inspect-renderer.mjs           # 렌더러 스모크 확인 (14.3)
 │  ├─ check-terminal.mjs             # 터미널 기능 확인 (14.3)
 │  ├─ check-canvas.mjs               # 캔버스·다중 노드 확인 (14.3)
 │  ├─ check-persistence.mjs          # tmux·영속성 확인 (14.3)
 │  ├─ check-status.mjs               # 상태 감지 확인 (14.3)
-│  └─ check-zoom.mjs                 # 줌 단계·성능 확인 (14.3)
+│  ├─ check-zoom.mjs                 # 줌 단계·성능 확인 (14.3)
+│  └─ check-polish.mjs               # 브랜치·색 라벨·설정 확인 (14.3)
 ├─ src/
 │  ├─ shared/
 │  │  ├─ types.ts                    # 9장 데이터 모델
@@ -150,6 +152,7 @@ session-canvas/
 │  │  ├─ workspace/WorkspaceStore.ts
 │  │  ├─ workspace/serialize.ts      # 순수 함수, 단위 테스트 대상
 │  │  ├─ notify/Notifier.ts
+│  │  ├─ git/GitService.ts           # 7.1 브랜치 표시
 │  │  ├─ resources.ts                # resources/ 실제 파일 경로 해석
 │  │  └─ ipc.ts
 │  ├─ preload/index.ts
@@ -161,6 +164,7 @@ session-canvas/
 │     ├─ nodes/NodeDescription.tsx
 │     ├─ nodes/NewNodeDialog.tsx     # 7.2
 │     ├─ nodes/DetachedSession.tsx   # 5.4 "세션 없음"
+│     ├─ nodes/NodeLocation.tsx      # 7.1 경로 · 브랜치
 │     ├─ canvas/OrphanSessions.tsx   # 5.4 "분리된 세션"
 │     ├─ nodes/statusPresentation.ts # 8.1 기호·문구·색
 │     ├─ settings/SettingsPanel.tsx  # 8.4 동의 UI
@@ -177,7 +181,7 @@ session-canvas/
 
 ### 4.3 실행 환경 요구사항
 - macOS 14+, Node.js 20+, **tmux 3.3+** (`brew install tmux`), Claude Code CLI 설치
-- 앱 시작 시 `tmux -V`로 버전을 확인하고, 없거나 낮으면 **설치 안내 화면**을 띄운다(앱이 죽으면 안 된다).
+- 앱 시작 시 `tmux -V`로 버전을 확인하고, 없거나 낮으면 **설치 안내 화면**을 띄운다(앱이 죽으면 안 된다). 단계 6에서 `SHELL=/bin/sh PATH=<tmux 없는 경로>`로 띄워 확인했다.
 
 ### 4.4 ⚠️ PATH 문제 (반드시 처리)
 Finder/Dock에서 실행한 macOS 앱은 **사용자 셸의 PATH를 물려받지 않는다.** `/opt/homebrew/bin`의 `tmux`, `claude`를 찾지 못한다.
@@ -186,6 +190,7 @@ Finder/Dock에서 실행한 macOS 앱은 **사용자 셸의 PATH를 물려받지
 - PTY에는 `TERM=xterm-256color`, `COLORTERM=truecolor`를 더해 준다(트루컬러).
 - 로케일이 UTF-8이 아니면 한글이 깨진다. 로그인 셸 환경에 `LANG`이 없으면 `ko_KR.UTF-8`을 기본값으로 넣는다.
 - 개발 모드(`npm run dev`)에서는 터미널의 PATH를 물려받아 문제가 가려지므로, 단계 6에서 **패키징된 앱으로 반드시 재확인**한다.
+- **확인 완료 (2026-09-20, 단계 6).** `open <앱>`(LaunchServices — Finder와 같은 경로)으로 띄운 패키징 앱이 tmux 3.7c를 찾고, 노드 안에서 `claude --version`도 정상 동작했다. 확인 방법: 패키징 앱을 `--remote-debugging-port`와 함께 `open`하고, 노드가 만든 tmux 세션을 `tmux -L session-canvas capture-pane -p -t sc-<id>`로 바깥에서 읽는다(프로덕션 빌드에는 개발 점검 훅이 없다).
 
 ---
 
@@ -237,6 +242,8 @@ set -g window-size latest
   ├─ 워크스페이스에 있고 세션도 있음   → 자동 재접속 (new-session -A)
   ├─ 워크스페이스에 있는데 세션이 없음 → 노드에 "세션 없음" 상태 표시 (재부팅 등)
   │      [새로 시작]  [이전 대화 이어서]  ← claudeSessionId가 있을 때만: `claude --resume <id>`
+  │      ([이전 대화 이어서]는 노드의 `command`를 `claude --resume <id>`로 바꾼 뒤 세션을 새로 연다.
+  │       `claudeSessionId`는 `SessionStart` 훅이 채우므로 상태 감지를 켜 둔 적이 있어야 나온다.)
   └─ 세션은 있는데 워크스페이스에 없음 → "분리된 세션" 목록에 표시, 클릭 시 노드로 복원
 ```
 
@@ -355,14 +362,18 @@ CSS transform으로 확대·축소된 터미널은 글자가 뭉개지므로, �
 ### 8.1 상태 정의
 색만으로 전달하지 않는다. **기호 + 문구 + 색**을 함께 표시한다.
 
-| 상태 | 기호 | 문구 | 색 | 의미 |
+| 상태 | 기호 | 문구 | 테두리 색 | 의미 |
 |---|---|---|---|---|
-| `unknown` | ○ | 대기 | 회색 | Claude Code 외 명령, 또는 아직 이벤트 없음 |
+| `unknown` | ○ | 대기 | 흰색 | Claude Code 외 명령, 또는 아직 이벤트 없음 |
 | `working` | ◐ | 작업 중 | 파랑 | 프롬프트 제출 후 도구 실행 중 |
-| `waiting` | ● | 입력 대기 | 주황, 테두리 펄스 | 권한 요청·입력 대기 알림 |
-| `done` | ✓ | 완료 | 초록 | 응답 종료, 아직 확인 안 함 |
+| `waiting` | ● | 입력 대기 | 주황 + 깜빡임 | 권한 요청·입력 대기 알림 |
+| `done` | ✓ | 완료 | 초록 + 깜빡임(느리게) | 응답 종료, 아직 확인 안 함 |
 | `detached` | – | 세션 없음 | 회색 점선 | tmux 세션이 없음 (5.4) |
 
+- **상태는 노드 테두리 전체로 보여 준다.** 두께 3px. 멀리서도 어느 노드가 나를 기다리는지 한눈에 보여야 한다(1.2의 목표 3).
+- 깜빡임은 **unseen일 때만** 한다. 포커스해서 확인하면 멈춘다. `prefers-reduced-motion`이면 깜빡이지 않고 테두리 바깥 링으로 대신한다.
+- 선택 표시는 테두리가 아니라 **바깥쪽 링(outline)** 으로 그린다 — 선택했다고 상태 색을 잃으면 안 된다.
+- 상태 색은 **테마(9.1)와 무관하게 고정**이다. 테마를 바꿨다고 상태를 못 알아보면 안 된다.
 - `waiting`, `done`은 **unseen** 플래그를 가진다. 사용자가 그 노드에 포커스하면 unseen이 해제되고, `done`은 `unknown`으로 내려간다.
 
 ### 8.2 이벤트 → 상태 매핑 (`mapEvent.ts`, 순수 함수)
@@ -481,6 +492,7 @@ export interface Workspace {
     notifications: boolean;      // 기본 true
     fontFamily: string;
     fontSize: number;            // 기본 13
+    theme: { preset: string; accent: string };  // 기본 dark / #4c8dff
   };
 }
 
@@ -494,6 +506,8 @@ export interface NodeStatus {
 }
 ```
 - **상태(`NodeStatus`)는 저장하지 않는다.** 상태 파일과 tmux에서 매번 재구성한다.
+- `theme.preset`은 배경 계열(`dark`·`midnight`·`graphite`·`forest`·`latte`), `accent`는 강조색이다. 화면은 CSS 변수로, 터미널은 xterm의 `theme` 옵션으로 같은 값을 받는다 — 터미널은 자기 배경을 직접 그리므로 CSS만 바꾸면 노드 안이 따로 논다.
+- 설정에 없던 필드(예전 파일의 `theme`)는 로드할 때 기본값으로 채운다(9.2의 마이그레이션).
 
 ### 9.2 저장
 - 위치: `app.getPath('userData')/workspace.json`
@@ -633,6 +647,7 @@ type PtyOpenRequest = Pick<TerminalNodeData, 'id' | 'command'> & { cwd: string |
 ### 14.2 통합 테스트
 - tmux가 설치된 환경에서만 실행(`describe.skipIf`): 세션 생성 → has-session → kill → 목록에서 사라짐. **전용 소켓 이름에 테스트용 접미사**를 붙여 실제 세션과 충돌하지 않게 한다.
 - 앱을 띄워서 하는 점검(14.3)도 같은 격리가 필요하다. 소켓은 환경변수 `SESSION_CANVAS_TMUX_SOCKET`으로, 워크스페이스 파일은 Electron의 `--user-data-dir`로 갈아끼운다.
+- **개발 중에도 같은 격리가 필요하다.** `npm run dev`는 패키징 앱과 같은 소켓·같은 `workspace.json`을 쓰므로, 사용자가 실제로 작업하는 세션이 있는 상태에서 앱을 고치면 서로 간섭한다. `npm run dev:isolated`(`scripts/dev-isolated.mjs`)가 전용 소켓 `session-canvas-dev`와 `.dev-userdata`를 쓴다.
 - 훅 스크립트: 임시 HOME으로 stdin 주입 → 상태 파일 생성 확인, 환경변수 없을 때 파일 미생성 확인, 잘못된 id 거부 확인.
 - `HookInstaller`도 경로를 전부 주입받아 임시 HOME에서만 검증한다. **자동 점검은 절대 진짜 `~/.claude/settings.json`을 건드리지 않는다.** 앱을 띄워서 하는 상태 감지 점검(`check-status.mjs`)은 전역 설치 대신 점검용 임시 폴더의 **프로젝트 설정**에 훅을 등록한다.
 
@@ -658,3 +673,8 @@ type PtyOpenRequest = Pick<TerminalNodeData, 'id' | 'command'> & { cwd: string |
 | v0.1.7 | 2026-09-20 | 단계 4 R1 확인 완료: §8.2를 공식 문서 + 실제 stdin 덤프 기준으로 전면 개정(`PermissionRequest`·`StopFailure` 추가, 실측 필드명 표 추가, 문서와 다른 필드명 경고). D7 대안(`--settings`) 검토 결과 D7 유지 |
 | v0.1.8 | 2026-09-20 | 단계 4 구현 중 개정: §8.5에 mtime 규칙을 감시 이벤트에도 적용(FSEvents가 감시 직전 변경까지 전달). §10의 `status`·`hooks`·`app` 계약 구체화(`setKnownNodes`, 백업 경로 반환, `notify`/`setNotificationsEnabled`). §14.2에 훅 점검 격리 원칙. §4.2에 단계 4 파일 추가 |
 | v0.1.9 | 2026-09-20 | 단계 5 구현 중 개정: §6.3에 컨텍스트 손실 노드 재부착 금지·최근 포커스 관리 명시. §7.5에 `Cmd+C` 선택 조건·캡처 단계 처리·클립보드 경로 명시. §10에 `clipboard` API 추가. §4.2에 `canvas/zoomLevel.ts`·`nodes/NodeOverview.tsx`·`scripts/check-zoom.mjs` 추가 |
+| v0.1.10 | 2026-09-20 | §0.6 개정: 커밋 메시지를 영어에서 사용자 전역 규칙의 `타입 : 한국어 설명` 형식으로 바꾸고, 브랜치·커밋 승인 규칙을 명시. 이 프로젝트에 `AGENTS.md`가 없어 전역 규칙이 적용된다 |
+| v0.1.11 | 2026-09-20 | 단계 6 구현 중 개정: §4.3·§4.4에 패키징 앱 확인 결과와 확인 방법 기록. §5.4에 [이전 대화 이어서] 구현 방식 명시. §4.2에 `main/git/GitService.ts`·`nodes/NodeLocation.tsx`·`scripts/check-polish.mjs` 추가 |
+| v0.1.12 | 2026-09-21 | 사용자 요청 반영: §8.1에서 상태를 노드 테두리(3px)로 표시하고 `unknown`을 흰색으로, `waiting`·`done`은 unseen일 때 깜빡이게 했다. 선택 표시는 outline으로 분리. §9.1 `settings.theme`(preset·accent) 추가 — 화면과 터미널 색을 함께 바꾼다 |
+| v0.1.13 | 2026-09-21 | §14.2에 개발 중 격리 원칙과 `scripts/dev-isolated.mjs` 추가 — `npm run dev`가 실제 tmux 소켓·워크스페이스를 공유해 사용자의 작업 세션과 간섭하는 문제 |
+| v0.1.14 | 2026-09-21 | §0.6에 푸시 주기 규칙 추가(2~3커밋 또는 독립 기능 단위). 팀원용 README(준비물·빌드·사용법)와 MIT LICENSE 추가 |

@@ -5,7 +5,8 @@ import {
   DEFAULT_SETTINGS,
   NODE_ID_PATTERN,
   type TerminalNodeData,
-  type Workspace
+  type Workspace,
+  type WorkspaceSettings
 } from '../../shared/types'
 
 export const WORKSPACE_VERSION = 1
@@ -66,6 +67,15 @@ function normalizeNode(raw: unknown): TerminalNodeData | null {
   }
 }
 
+/** 예전 파일에는 `theme`이 없다. 없거나 망가졌으면 기본값으로 채운다. */
+function normalizeTheme(raw: unknown): WorkspaceSettings['theme'] {
+  if (!isRecord(raw)) return { ...DEFAULT_SETTINGS.theme }
+  return {
+    preset: str(raw.preset, DEFAULT_SETTINGS.theme.preset),
+    accent: str(raw.accent, DEFAULT_SETTINGS.theme.accent)
+  }
+}
+
 export function parseWorkspace(raw: string): ParseResult {
   let data: unknown
   try {
@@ -95,6 +105,7 @@ export function parseWorkspace(raw: string): ParseResult {
       },
       nodes: nodes.map(normalizeNode).filter((node): node is TerminalNodeData => node !== null),
       settings: {
+        theme: normalizeTheme(settings.theme),
         webglMax: num(settings.webglMax, DEFAULT_SETTINGS.webglMax),
         notifications:
           typeof settings.notifications === 'boolean'

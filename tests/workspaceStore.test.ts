@@ -69,6 +69,40 @@ describe('serialize (SPEC 9.2)', () => {
     expect(parsed.workspace.nodes.map((n) => n.id)).toEqual(['good12345X'])
   })
 
+  // SPEC 9.1에 `theme`이 뒤늦게 생겼다. 그 전에 저장한 파일도 읽혀야 한다.
+  it('theme이 없는 예전 파일은 기본 테마로 채운다', () => {
+    const parsed = parseWorkspace(
+      JSON.stringify({ version: 1, settings: { fontSize: 15, webglMax: 2 } })
+    )
+    expect(parsed.status).toBe('ok')
+    if (parsed.status !== 'ok') return
+    expect(parsed.workspace.settings.theme).toEqual({ preset: 'dark', accent: '#4c8dff' })
+    // 같이 있던 다른 설정은 그대로 살아야 한다.
+    expect(parsed.workspace.settings.fontSize).toBe(15)
+    expect(parsed.workspace.settings.webglMax).toBe(2)
+  })
+
+  it('theme이 망가져 있어도 기본값으로 살려 낸다', () => {
+    for (const theme of ['문자열', 42, null, [], { preset: 7 }]) {
+      const parsed = parseWorkspace(JSON.stringify({ version: 1, settings: { theme } }))
+      expect(parsed.status).toBe('ok')
+      if (parsed.status !== 'ok') continue
+      expect(parsed.workspace.settings.theme.preset).toBe('dark')
+      expect(parsed.workspace.settings.theme.accent).toBe('#4c8dff')
+    }
+  })
+
+  it('고른 테마는 저장→로드 왕복에서 유지된다', () => {
+    const chosen = {
+      ...sample(),
+      settings: { ...sample().settings, theme: { preset: 'latte', accent: '#3fb894' } }
+    }
+    const parsed = parseWorkspace(serializeWorkspace(chosen))
+    expect(parsed.status).toBe('ok')
+    if (parsed.status !== 'ok') return
+    expect(parsed.workspace.settings.theme).toEqual({ preset: 'latte', accent: '#3fb894' })
+  })
+
   it('상위 버전은 읽지 않는다', () => {
     expect(parseWorkspace('{"version":99}')).toEqual({ status: 'unsupported-version', version: 99 })
   })

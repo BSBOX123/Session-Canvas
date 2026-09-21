@@ -25,7 +25,8 @@ export const CHANNELS = {
   appNotificationClick: 'app:notificationClick',
   appSetNotifications: 'app:setNotifications',
   clipboardRead: 'clipboard:read',
-  clipboardWrite: 'clipboard:write'
+  clipboardWrite: 'clipboard:write',
+  gitBranch: 'git:branch'
 } as const
 
 /**
@@ -133,6 +134,11 @@ export interface ClipboardApi {
   write(text: string): void
 }
 
+export interface GitApi {
+  /** 저장소가 아니면 null. 헤더의 `경로 · 브랜치` 표시에 쓴다 (SPEC 7.1). */
+  branch(cwd: string): Promise<string | null>
+}
+
 export interface DialogApi {
   /** 디렉터리 선택 창. 취소하면 null (SPEC 7.2). */
   pickDirectory(): Promise<string | null>
@@ -146,5 +152,6 @@ export interface Api {
   hooks: HooksApi
   app: AppApi
   clipboard: ClipboardApi
+  git: GitApi
   dialog: DialogApi
 }

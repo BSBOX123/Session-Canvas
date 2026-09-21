@@ -6,6 +6,7 @@ import { CHANNELS } from '../shared/ipc'
 import { resolveLoginEnv } from './env/loginEnv'
 import { resourcePath } from './resources'
 import { TmuxService } from './tmux/TmuxService'
+import { GitService } from './git/GitService'
 import { TMUX_SOCKET, type TmuxContext } from './tmux/buildArgs'
 import { WorkspaceStore } from './workspace/WorkspaceStore'
 import { HookInstaller } from './hooks/HookInstaller'
@@ -107,6 +108,7 @@ app.whenReady().then(async () => {
   registerIpcHandlers({
     pty: ptyManager,
     tmux: tmuxService,
+    git: new GitService(loginEnv),
     store: workspaceStore,
     status: statusWatcher,
     hooks: hookInstaller,
