@@ -4,6 +4,7 @@
   "description": "Multiple Claude Code sessions as terminal nodes on one infinite canvas",
   "main": "./out/main/index.js",
   "author": "SeungYoon Kim",
+  "license": "MIT",
   "private": true,
   "scripts": {
     "dev": "electron-vite dev",

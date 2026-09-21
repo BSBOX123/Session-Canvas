@@ -17,7 +17,7 @@
 3. **13장 "확인 필요" 항목은 추측으로 구현하지 않는다.** 공식 문서나 실제 실행으로 확인한 뒤 구현하고, 확인 결과를 문서에 반영한다. 특히 Claude Code hooks 스키마(R1)는 반드시 최신 공식 문서(`https://docs.claude.com/en/docs/claude-code/hooks`)로 확인한다.
 4. **사용자 전역 설정을 함부로 건드리지 않는다.** `~/.claude/settings.json`, `~/.tmux.conf`, `~/.zshrc` 등 앱 밖의 파일은 수정하지 않는다. 유일한 예외는 8.4의 훅 설치이며, 앱 UI에서 사용자가 명시적으로 동의했을 때만 백업 후 수행한다. 개발 중 테스트도 임시 HOME 또는 fixture 파일로 한다.
 5. TypeScript `strict: true`, **`any` 금지**, React는 Function Component만 사용한다.
-6. 사용자와의 대화·UI 문구는 한국어, 코드 식별자·주석은 각각 영어·한국어로 쓴다. **커밋 메시지는 사용자 전역 규칙(`~/.claude/CLAUDE.md`)을 따라 `타입 : 한국어 설명` 형식으로 쓴다** (타입: feat, fix, chore, docs, refactor, test). 작업은 `main`이 아니라 새 브랜치에서 하고, 커밋 전에 사용자에게 묻는다.
+6. 사용자와의 대화·UI 문구는 한국어, 코드 식별자·주석은 각각 영어·한국어로 쓴다. **커밋 메시지는 사용자 전역 규칙(`~/.claude/CLAUDE.md`)을 따라 `타입 : 한국어 설명` 형식으로 쓴다** (타입: feat, fix, chore, docs, refactor, test). 작업은 `main`이 아니라 새 브랜치에서 하고, 커밋 전에 사용자에게 묻는다. **푸시는 자주 한다** — 커밋마다는 아니어도 2~3개가 쌓이거나 독립된 기능 하나를 더하거나 뺄 때마다, 무엇을 했는지 한 줄로 알리고 푸시한다. 작업 과정이 기록으로 남아야 한다.
 
 ---
 
@@ -677,3 +677,4 @@ type PtyOpenRequest = Pick<TerminalNodeData, 'id' | 'command'> & { cwd: string |
 | v0.1.11 | 2026-09-20 | 단계 6 구현 중 개정: §4.3·§4.4에 패키징 앱 확인 결과와 확인 방법 기록. §5.4에 [이전 대화 이어서] 구현 방식 명시. §4.2에 `main/git/GitService.ts`·`nodes/NodeLocation.tsx`·`scripts/check-polish.mjs` 추가 |
 | v0.1.12 | 2026-09-21 | 사용자 요청 반영: §8.1에서 상태를 노드 테두리(3px)로 표시하고 `unknown`을 흰색으로, `waiting`·`done`은 unseen일 때 깜빡이게 했다. 선택 표시는 outline으로 분리. §9.1 `settings.theme`(preset·accent) 추가 — 화면과 터미널 색을 함께 바꾼다 |
 | v0.1.13 | 2026-09-21 | §14.2에 개발 중 격리 원칙과 `scripts/dev-isolated.mjs` 추가 — `npm run dev`가 실제 tmux 소켓·워크스페이스를 공유해 사용자의 작업 세션과 간섭하는 문제 |
+| v0.1.14 | 2026-09-21 | §0.6에 푸시 주기 규칙 추가(2~3커밋 또는 독립 기능 단위). 팀원용 README(준비물·빌드·사용법)와 MIT LICENSE 추가 |
