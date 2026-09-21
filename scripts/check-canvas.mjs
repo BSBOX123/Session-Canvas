@@ -374,24 +374,104 @@ try {
     return { x: r.x + r.width / 2, y: r.y + r.height / 2 }
   })()`)
   if (handleRect) {
+    const sizeBefore = await evaluate(
+      `window.__sessionCanvas.nodes.find((n) => n.id === ${JSON.stringify(target)}).size`
+    )
     await drag(handleRect, { x: handleRect.x - 220, y: handleRect.y - 120 })
     await sleep(800)
     const afterResize = await evaluate(
       `({ cols: ${term(target)}.cols, rows: ${term(target)}.rows })`
     )
     await write(target, 'tput cols\r')
-    await sleep(1200)
-    // `tput cols` 출력은 프롬프트 사이에 끼어 있다. 마지막 숫자만 줄만 고른다.
-    const shellCols =
+    // `tput cols` 출력은 프롬프트 사이에 끼어 있다. 숫자만 있는 마지막 줄을
+    // 고르되, 출력이 도착할 때까지 기다린다 — 고정 대기로는 놓친다.
+    // 프롬프트가 같은 줄 오른쪽에 상태를 그리기 때문에("52   INT ✘ 00:50")
+    // 줄 전체가 숫자인 경우만 찾으면 못 잡는다. 첫 토큰만 본다.
+    const readShellCols = async () =>
       (await bufferOf(target))
         .split('\n')
-        .map((line) => line.trim())
-        .filter((line) => /^\d+$/.test(line))
+        .map((line) => line.trim().split(/\s+/)[0] ?? '')
+        .filter((token) => /^\d+$/.test(token))
         .pop() ?? ''
+    let shellCols = ''
+    const colsDeadline = Date.now() + 15_000
+    while (Date.now() < colsDeadline) {
+      shellCols = await readShellCols()
+      if (shellCols === String(afterResize.cols)) break
+      await sleep(400)
+    }
     reporter.check(
       '리사이즈 핸들 드래그 → fit → pty.resize (SPEC 7.1)',
       afterResize.cols < beforeResize.cols && shellCols === String(afterResize.cols),
-      `${beforeResize.cols}×${beforeResize.rows} → ${afterResize.cols}×${afterResize.rows}, 셸 cols=${shellCols}`
+      shellCols === String(afterResize.cols)
+        ? `${beforeResize.cols}×${beforeResize.rows} → ${afterResize.cols}×${afterResize.rows}, 셸 cols=${shellCols}`
+        : `${beforeResize.cols}×${beforeResize.rows} → ${afterResize.cols}×${afterResize.rows}, 셸 cols 못 읽음. 화면: ${JSON.stringify(
+            (await bufferOf(target)).split('\n').filter(Boolean).slice(-6).join(' / ')
+          )}`
+    )
+
+    // 끈 만큼만 줄어야 한다. `measured`를 넘기지 않으면 React Flow가 기준
+    // 크기를 0으로 보고 시작하자마자 최소 크기로 튄다 — 그 회귀를 잡는다.
+    const sizeAfter = await evaluate(
+      `window.__sessionCanvas.nodes.find((n) => n.id === ${JSON.stringify(target)}).size`
+    )
+    const deltaW = sizeBefore.width - sizeAfter.width
+    const deltaH = sizeBefore.height - sizeAfter.height
+    reporter.check(
+      '줄이기: 끈 만큼만 움직인다 (최소 크기로 튀지 않음)',
+      Math.abs(deltaW - 220) < 20 && Math.abs(deltaH - 120) < 20,
+      `${sizeBefore.width}×${sizeBefore.height} → ${sizeAfter.width}×${sizeAfter.height} (끈 거리 220×120, 실제 ${deltaW}×${deltaH})`
+    )
+
+    // 늘리기도 따로 본다. 줄이기만 확인하면 놓친다 — 실제로 놓쳤다.
+    const growHandle = await evaluate(`(() => {
+      const el = document.querySelector('.react-flow__node[data-id=' + JSON.stringify(${JSON.stringify(target)}) + '] .react-flow__resize-control.bottom.right')
+      if (!el) return null
+      const r = el.getBoundingClientRect()
+      return { x: r.x + r.width / 2, y: r.y + r.height / 2 }
+    })()`)
+    const growSteps = []
+    if (growHandle) {
+      await send('Input.dispatchMouseEvent', {
+        type: 'mousePressed',
+        x: growHandle.x,
+        y: growHandle.y,
+        button: 'left',
+        clickCount: 1
+      })
+      for (let i = 1; i <= 5; i++) {
+        await send('Input.dispatchMouseEvent', {
+          type: 'mouseMoved',
+          x: growHandle.x + i * 40,
+          y: growHandle.y + i * 30,
+          button: 'left',
+          buttons: 1
+        })
+        await sleep(90)
+        growSteps.push(
+          await evaluate(
+            `window.__sessionCanvas.nodes.find((n) => n.id === ${JSON.stringify(target)}).size`
+          )
+        )
+      }
+      await send('Input.dispatchMouseEvent', {
+        type: 'mouseReleased',
+        x: growHandle.x + 200,
+        y: growHandle.y + 150,
+        button: 'left',
+        clickCount: 1
+      })
+      await sleep(400)
+    }
+    const grown = growSteps.at(-1)
+    // 드래그 **중에도** 매 단계 따라와야 한다. 마지막만 맞으면 미리보기가 없는 것이다.
+    const followsCursor = growSteps.every(
+      (step, i) => Math.abs(step.width - (sizeAfter.width + (i + 1) * 40)) < 20
+    )
+    reporter.check(
+      '늘리기: 드래그 중에도 커서를 따라온다',
+      grown !== undefined && followsCursor && grown.width > sizeAfter.width,
+      growSteps.map((step) => `${step.width}×${step.height}`).join(' → ')
     )
   } else {
     reporter.check(

@@ -62,6 +62,8 @@ function CanvasInner(): React.JSX.Element {
   const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(new Set())
   const [settingsOpen, setSettingsOpen] = useState(false)
   const wrapperRef = useRef<HTMLDivElement>(null)
+  /** 리사이즈 드래그가 진행 중인가. 그동안은 스토어를 갱신하지 않는다. */
+  const resizingRef = useRef(false)
 
   const flowNodes: TerminalFlowNode[] = useMemo(
     () =>
@@ -71,6 +73,12 @@ function CanvasInner(): React.JSX.Element {
         position: node.position,
         width: node.size.width,
         height: node.size.height,
+        // React Flow는 `adoptUserNodes`에서 우리가 넘긴 객체의 `measured`만
+        // 살려 둔다. 여기서 안 넘기면 스토어가 바뀔 때마다 `measured`가
+        // undefined로 지워지고, 그 상태로 리사이즈를 시작하면 기준 크기가
+        // 0이 되어 최소 크기로 튄다. 노드 DOM 크기는 곧 `size`이므로 같은
+        // 값을 준다.
+        measured: { width: node.size.width, height: node.size.height },
         selected: selectedIds.has(node.id),
         // SPEC 7.1: 드래그는 헤더로만.
         dragHandle: '.drag-handle',
@@ -92,6 +100,15 @@ function CanvasInner(): React.JSX.Element {
           return next
         })
       }
+
+      // 리사이즈 중에는 `NodeResizer`의 `onResize`가 직접 스토어에 넣는다.
+      // 여기서 또 쓰면 같은 값을 두 번 쓰는 셈이라 렌더만 늘어난다.
+      for (const change of changes) {
+        if (change.type === 'dimensions' && change.resizing !== undefined) {
+          resizingRef.current = change.resizing
+        }
+      }
+      if (resizingRef.current) return
 
       for (const change of changes) {
         if (change.type === 'position' && change.position) {

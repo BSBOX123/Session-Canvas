@@ -848,3 +848,50 @@ body {
 .dialog.settings input[type='range'] {
   padding: 0;
 }
+
+/* ── 리사이즈 손잡이 (SPEC 7.1) ───────────────────────── */
+
+/*
+ * 기본값은 5px짜리 점이라 커서를 맞추기가 너무 어렵다. 잡는 영역만 키우고
+ * 보이는 크기는 작게 유지한다.
+ */
+.react-flow__resize-control.handle {
+  width: 16px;
+  height: 16px;
+  background: transparent;
+  border: none;
+  border-radius: 3px;
+}
+
+.react-flow__resize-control.handle::after {
+  content: '';
+  position: absolute;
+  inset: 5px;
+  background: var(--accent);
+  border: 1px solid #fff;
+  border-radius: 2px;
+}
+
+.react-flow__resize-control.handle:hover::after {
+  inset: 3px;
+}
+
+/* 테두리도 대충 가져다 대면 잡히도록 10px 띠로 넓힌다. */
+.react-flow__resize-control.line {
+  border-width: 0;
+  background: transparent;
+}
+
+.react-flow__resize-control.line.left,
+.react-flow__resize-control.line.right {
+  width: 10px;
+}
+
+.react-flow__resize-control.line.top,
+.react-flow__resize-control.line.bottom {
+  height: 10px;
+}
+
+.react-flow__resize-control.line:hover {
+  background: rgba(76, 141, 255, 0.25);
+}

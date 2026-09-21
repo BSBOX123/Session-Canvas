@@ -46,6 +46,33 @@ function TerminalNode({ data, selected }: NodeProps<TerminalFlowNode>): React.JS
     markSessionStarted(node.id)
   }, [node.claudeSessionId, node.id, markSessionStarted, updateNode])
 
+  /**
+   * 리사이즈 중 크기·위치를 반영한다.
+   *
+   * ⚠️ **이 콜백은 반드시 고정(useCallback)되어야 한다.** React Flow의
+   * `ResizeControl`은 `onResize`/`onResizeEnd`를 effect 의존성에 넣어서,
+   * 매 렌더마다 새 함수를 주면 드래그 도중 리사이저를 destroy → update 한다.
+   * 그러면 기준점(startValues)이 초기화되어 크기가 제멋대로 튄다.
+   */
+  const applyResize = useCallback(
+    (_event: unknown, params: { x: number; y: number; width: number; height: number }) => {
+      updateNode(node.id, {
+        position: { x: params.x, y: params.y },
+        size: { width: params.width, height: params.height }
+      })
+    },
+    [node.id, updateNode]
+  )
+
+  const finishResize = useCallback(
+    (_event: unknown, params: { x: number; y: number; width: number; height: number }) => {
+      applyResize(_event, params)
+      // fit → pty.resize (SPEC 7.1)
+      fitAndResize(node.id)
+    },
+    [applyResize, node.id]
+  )
+
   /** 닫기(분리): PTY만 끊고 tmux 세션은 살려 둔다 (SPEC 5.3). */
   const detachNode = useCallback(() => {
     dispose(node.id, 'detach')
@@ -76,11 +103,8 @@ function TerminalNode({ data, selected }: NodeProps<TerminalFlowNode>): React.JS
         isVisible={selected === true}
         minWidth={MIN_NODE_SIZE.width}
         minHeight={MIN_NODE_SIZE.height}
-        onResize={(_event, params) => {
-          updateNode(node.id, { size: { width: params.width, height: params.height } })
-        }}
-        // 리사이즈가 끝나면 fit → pty.resize (SPEC 7.1).
-        onResizeEnd={() => fitAndResize(node.id)}
+        onResize={applyResize}
+        onResizeEnd={finishResize}
       />
       <NodeHeader
         node={node}
