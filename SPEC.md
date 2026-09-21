@@ -127,6 +127,7 @@ session-canvas/
 │  └─ hooks/session-canvas-hook.sh   # 8.3
 ├─ scripts/
 │  ├─ lib/cdp.mjs                    # CDP 점검 공용 도구 (14.3)
+│  ├─ dev-isolated.mjs               # 격리 개발 모드 (14.2)
 │  ├─ inspect-renderer.mjs           # 렌더러 스모크 확인 (14.3)
 │  ├─ check-terminal.mjs             # 터미널 기능 확인 (14.3)
 │  ├─ check-canvas.mjs               # 캔버스·다중 노드 확인 (14.3)
@@ -646,6 +647,7 @@ type PtyOpenRequest = Pick<TerminalNodeData, 'id' | 'command'> & { cwd: string |
 ### 14.2 통합 테스트
 - tmux가 설치된 환경에서만 실행(`describe.skipIf`): 세션 생성 → has-session → kill → 목록에서 사라짐. **전용 소켓 이름에 테스트용 접미사**를 붙여 실제 세션과 충돌하지 않게 한다.
 - 앱을 띄워서 하는 점검(14.3)도 같은 격리가 필요하다. 소켓은 환경변수 `SESSION_CANVAS_TMUX_SOCKET`으로, 워크스페이스 파일은 Electron의 `--user-data-dir`로 갈아끼운다.
+- **개발 중에도 같은 격리가 필요하다.** `npm run dev`는 패키징 앱과 같은 소켓·같은 `workspace.json`을 쓰므로, 사용자가 실제로 작업하는 세션이 있는 상태에서 앱을 고치면 서로 간섭한다. `npm run dev:isolated`(`scripts/dev-isolated.mjs`)가 전용 소켓 `session-canvas-dev`와 `.dev-userdata`를 쓴다.
 - 훅 스크립트: 임시 HOME으로 stdin 주입 → 상태 파일 생성 확인, 환경변수 없을 때 파일 미생성 확인, 잘못된 id 거부 확인.
 - `HookInstaller`도 경로를 전부 주입받아 임시 HOME에서만 검증한다. **자동 점검은 절대 진짜 `~/.claude/settings.json`을 건드리지 않는다.** 앱을 띄워서 하는 상태 감지 점검(`check-status.mjs`)은 전역 설치 대신 점검용 임시 폴더의 **프로젝트 설정**에 훅을 등록한다.
 
@@ -674,3 +676,4 @@ type PtyOpenRequest = Pick<TerminalNodeData, 'id' | 'command'> & { cwd: string |
 | v0.1.10 | 2026-09-20 | §0.6 개정: 커밋 메시지를 영어에서 사용자 전역 규칙의 `타입 : 한국어 설명` 형식으로 바꾸고, 브랜치·커밋 승인 규칙을 명시. 이 프로젝트에 `AGENTS.md`가 없어 전역 규칙이 적용된다 |
 | v0.1.11 | 2026-09-20 | 단계 6 구현 중 개정: §4.3·§4.4에 패키징 앱 확인 결과와 확인 방법 기록. §5.4에 [이전 대화 이어서] 구현 방식 명시. §4.2에 `main/git/GitService.ts`·`nodes/NodeLocation.tsx`·`scripts/check-polish.mjs` 추가 |
 | v0.1.12 | 2026-09-21 | 사용자 요청 반영: §8.1에서 상태를 노드 테두리(3px)로 표시하고 `unknown`을 흰색으로, `waiting`·`done`은 unseen일 때 깜빡이게 했다. 선택 표시는 outline으로 분리. §9.1 `settings.theme`(preset·accent) 추가 — 화면과 터미널 색을 함께 바꾼다 |
+| v0.1.13 | 2026-09-21 | §14.2에 개발 중 격리 원칙과 `scripts/dev-isolated.mjs` 추가 — `npm run dev`가 실제 tmux 소켓·워크스페이스를 공유해 사용자의 작업 세션과 간섭하는 문제 |

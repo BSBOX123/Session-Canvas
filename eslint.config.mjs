@@ -6,7 +6,18 @@ import eslintPluginReactHooks from 'eslint-plugin-react-hooks'
 import eslintPluginReactRefresh from 'eslint-plugin-react-refresh'
 
 export default defineConfig(
-  { ignores: ['**/node_modules', '**/dist', '**/out', 'build'] },
+  // `**/dist` 처럼 쓰면 디렉터리 자체만 무시하고 안쪽은 계속 훑는다.
+  // 패키징 산출물(.app)이 들어가면 `eslint .`가 수만 개 파일을 스캔한다.
+  {
+    ignores: [
+      '**/node_modules/**',
+      '**/dist/**',
+      '**/out/**',
+      'build/**',
+      '.dev-userdata/**',
+      'coverage/**'
+    ]
+  },
   tseslint.configs.recommended,
   eslintPluginReact.configs.flat.recommended,
   eslintPluginReact.configs.flat['jsx-runtime'],
