@@ -18,6 +18,7 @@ import '@xterm/xterm/css/xterm.css'
 import { DEFAULT_SETTINGS, type NodeId, type TerminalNodeData } from '@shared/types'
 import type { ThemeSettings } from '@shared/types'
 import { terminalTheme } from '../theme'
+import { useWorkspace } from '../state/workspace'
 
 export interface TerminalEntry {
   terminal: Terminal
@@ -117,6 +118,8 @@ function applyWebglPolicy(): void {
 
 /** 어떤 노드가 포커스를 받았다. 최근 순서를 갱신하고 정책을 다시 적용한다. */
 function touch(id: NodeId): void {
+  // 화면이 반응해야 하므로 스토어에도 알린다 (미리보기 입력 허용 판단, SPEC 7.3).
+  useWorkspace.getState().setFocusedNode(id)
   const at = recentlyFocused.indexOf(id)
   if (at === 0) return
   if (at > 0) recentlyFocused.splice(at, 1)
@@ -276,6 +279,9 @@ export function dispose(id: NodeId, mode: 'detach' | 'kill'): void {
   const at = recentlyFocused.indexOf(id)
   if (at >= 0) recentlyFocused.splice(at, 1)
   webglBlocked.delete(id)
+  if (useWorkspace.getState().focusedNodeId === id) {
+    useWorkspace.getState().setFocusedNode(focusedNode())
+  }
   detachWebgl(entry)
   applyWebglPolicy()
   void (mode === 'kill' ? window.api.pty.kill(id) : window.api.pty.detach(id))

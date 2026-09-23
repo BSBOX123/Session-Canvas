@@ -10,7 +10,7 @@ import { useReactFlow } from '@xyflow/react'
 import type { NodeId, TerminalNodeData } from '@shared/types'
 import { useWorkspace } from '../state/workspace'
 import { dispose, focus, focusedNode, get, changeFontSize } from '../terminal/TerminalRegistry'
-import { ZOOM_TO_NODE } from '../canvas/zoomLevel'
+import { boundsOf, viewportDuration, zoomToFit, ZOOM_TO_NODE } from '../canvas/zoomLevel'
 
 export interface ShortcutActions {
   openNewNodeDialog(): void
@@ -32,19 +32,38 @@ function attentionOrder(
 }
 
 export function useShortcuts({ openNewNodeDialog }: ShortcutActions): void {
-  const { setCenter, fitView, getViewport, setViewport } = useReactFlow()
+  const { setCenter, getViewport, setViewport } = useReactFlow()
 
   useEffect(() => {
     /** 직전 뷰 — `Cmd+Enter` 토글용 (SPEC 7.5). */
     let previousViewport: { x: number; y: number; zoom: number } | null = null
 
     const store = useWorkspace
-    const centerOn = async (node: TerminalNodeData): Promise<void> => {
-      await setCenter(
-        node.position.x + node.size.width / 2,
-        node.position.y + node.size.height / 2,
-        ZOOM_TO_NODE
+    /** 화면 크기. 배율을 직접 계산하려면 필요하다. */
+    const paneSize = (): { width: number; height: number } =>
+      document.querySelector('.react-flow')?.getBoundingClientRect() ?? { width: 0, height: 0 }
+
+    /** 어떤 영역이 통째로 보이도록 이동한다. */
+    const showBounds = async (
+      bounds: { x: number; y: number; width: number; height: number },
+      maxZoom = 1
+    ): Promise<void> => {
+      const pane = paneSize()
+      const zoom = zoomToFit(bounds, pane, { ...ZOOM_TO_NODE, maxZoom })
+      console.log(
+        '[디버그] showBounds',
+        JSON.stringify({ bounds, pane: { w: pane.width, h: pane.height }, zoom })
       )
+      const ok = await setCenter(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2, {
+        zoom,
+        duration: viewportDuration()
+      })
+      console.log('[디버그] setCenter 반환', ok)
+    }
+
+    // 노드 전체가 화면에 들어오도록 맞춘다. 배율 고정은 큰 노드를 자른다.
+    const centerOn = async (node: TerminalNodeData): Promise<void> => {
+      await showBounds({ ...node.position, ...node.size })
       focus(node.id)
       store.getState().markSeen(node.id)
     }
@@ -74,7 +93,9 @@ export function useShortcuts({ openNewNodeDialog }: ShortcutActions): void {
 
       if (key === '0') {
         take()
-        void fitView({ duration: ZOOM_TO_NODE.duration })
+        // 전체 보기. 노드가 없으면 할 일이 없다.
+        const bounds = boundsOf(nodes)
+        if (bounds !== null) void showBounds(bounds, 1)
         return
       }
 
@@ -101,7 +122,7 @@ export function useShortcuts({ openNewNodeDialog }: ShortcutActions): void {
         if (previousViewport !== null) {
           const target = previousViewport
           previousViewport = null
-          void setViewport(target, { duration: ZOOM_TO_NODE.duration })
+          void setViewport(target, { duration: viewportDuration() })
           return
         }
         const node = current()
@@ -153,5 +174,5 @@ export function useShortcuts({ openNewNodeDialog }: ShortcutActions): void {
     // 캡처 단계에서 본다. xterm의 textarea가 먼저 삼키면 Cmd 조합이 오지 않는다.
     window.addEventListener('keydown', onKeyDown, true)
     return () => window.removeEventListener('keydown', onKeyDown, true)
-  }, [fitView, getViewport, openNewNodeDialog, setCenter, setViewport])
+  }, [getViewport, openNewNodeDialog, setCenter, setViewport])
 }

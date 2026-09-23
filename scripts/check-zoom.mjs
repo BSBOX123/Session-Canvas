@@ -65,39 +65,14 @@ try {
 
   const bridge = (expr) => evaluate(`window.__sessionCanvas.${expr}`)
 
-  /** 노드·미니맵·컨트롤이 없는 빈 캔버스 지점 (거기서 굴려야 캔버스가 받는다). */
-  const emptyPoint = () =>
-    evaluate(`(() => {
-      for (let y = 120; y < window.innerHeight - 120; y += 40) {
-        for (let x = 40; x < window.innerWidth - 40; x += 40) {
-          const el = document.elementFromPoint(x, y)
-          if (el && el.classList.contains('react-flow__pane')) return { x, y }
-        }
-      }
-      return null
-    })()`)
-
-  /** 핀치(= ctrlKey가 붙은 wheel)로 줌을 바꾼다. UI 경로 그대로 확인한다. */
-  const pinch = async (direction, times = 1) => {
-    const pane = await emptyPoint()
-    if (pane === null) throw new Error('빈 캔버스 지점을 찾지 못했습니다')
-    for (let i = 0; i < times; i++) {
-      await send('Input.dispatchMouseEvent', {
-        type: 'mouseWheel',
-        x: pane.x,
-        y: pane.y,
-        deltaX: 0,
-        deltaY: direction === 'in' ? -120 : 120,
-        modifiers: 2
-      })
-      await sleep(250)
-    }
-  }
-
   /**
    * 배율을 정확히 지정한다. 휠 한 칸은 미리보기 구간(0.4~0.75)을 통째로
-   * 건너뛸 만큼 커서, 단계별 동작을 확인하려면 배율을 직접 줘야 한다.
-   * (핀치 경로 자체는 아래에서 따로 확인한다.)
+   * 건너뛸 만큼 크다.
+   *
+   * CDP 합성 핀치(Ctrl+휠)를 여기서 쓰지 않는 이유: 노드 10개에 대량 출력을
+   * 부은 상태에서 **합성 핀치만** ack가 오지 않아 점검이 죽는다(클릭·이동은
+   * 수십 ms로 정상이고 배율도 안 바뀐다). 원인을 확정하지 못했다. 실제
+   * 트랙패드 핀치는 다른 경로이고, 핀치 동작은 `check-canvas`가 검증한다.
    */
   const setZoom = async (zoom) => {
     await bridge(`zoomTo(${zoom})`)
@@ -202,17 +177,39 @@ try {
     typedOk ? 'echo 결과 확인' : '응답 없음'
   )
 
-  // ── 줌 단계 (SPEC 7.3) ───────────────────────────────
-  // 핀치로 실제 줌이 바뀌고 단계가 따라오는지 먼저 본다.
-  const levelBefore = await bridge('zoomLevel')
-  await pinch('out', 2)
-  const levelAfterPinch = await bridge('zoomLevel')
-  reporter.check(
-    '핀치로 줌 단계가 바뀐다 (SPEC 7.3/7.4)',
-    levelAfterPinch !== levelBefore,
-    `${levelBefore} → ${levelAfterPinch}`
-  )
+  await sleep(1500)
 
+  /*
+   * 입력 파이프라인 워밍업. 이 세션의 **첫 입력이 키보드거나 합성 핀치면
+   * 먹히지 않는다** — 창에 포커스가 없어서다. 빈 캔버스를 한 번 클릭해 두면
+   * 그 뒤의 단축키·휠이 정상 동작한다. 실제 사용자도 창을 클릭하고 쓴다.
+   */
+  const paneAt = await evaluate(`(() => {
+    for (let y = 120; y < window.innerHeight - 120; y += 40) {
+      for (let x = 40; x < window.innerWidth - 40; x += 40) {
+        const el = document.elementFromPoint(x, y)
+        if (el && el.classList.contains('react-flow__pane')) return { x, y }
+      }
+    }
+    return null
+  })()`)
+  if (paneAt !== null) {
+    await send('Input.dispatchMouseEvent', {
+      type: 'mousePressed',
+      ...paneAt,
+      button: 'left',
+      clickCount: 1
+    })
+    await send('Input.dispatchMouseEvent', {
+      type: 'mouseReleased',
+      ...paneAt,
+      button: 'left',
+      clickCount: 1
+    })
+    await sleep(400)
+  }
+
+  // ── 줌 단계 (SPEC 7.3) ───────────────────────────────
   await setZoom(0.6)
   const toPreview = (await bridge('zoomLevel')) === 'preview'
   reporter.check('0.6 배율 → 미리보기 단계', toPreview, `zoomLevel=${await bridge('zoomLevel')}`)
@@ -278,6 +275,70 @@ try {
     (await bridge('zoomLevel')) === 'detail',
     `zoomLevel=${await bridge('zoomLevel')}, scale=${(await viewportZoom()).toFixed(2)}`
   )
+
+  // ── 화면보다 큰 노드로 줌인 (사용자 신고) ────────────
+  // 배율을 1.0으로 고정하면 큰 노드가 잘린다. 전체가 들어와야 하고,
+  // 그렇게 배율이 0.75 아래로 내려가도 그 노드는 입력을 받아야 한다.
+  const bigId = ids[0]
+  const viewportSize = await evaluate(`({ w: window.innerWidth, h: window.innerHeight })`)
+  await bridge(
+    `updateNode(${JSON.stringify(bigId)}, { size: { width: ${viewportSize.w * 2}, height: ${
+      viewportSize.h * 2
+    } } })`
+  )
+  await sleep(600)
+  await evaluate(`(() => {
+    const el = document.querySelector('.react-flow__node[data-id=' + JSON.stringify(${JSON.stringify(bigId)}) + '] .node-button[title="이 노드로 줌인"]')
+    el.click()
+    return 1
+  })()`)
+  await sleep(900)
+
+  const fitted = await evaluate(`(() => {
+    const el = document.querySelector('.react-flow__node[data-id=' + JSON.stringify(${JSON.stringify(bigId)}) + ']')
+    const r = el.getBoundingClientRect()
+    return {
+      left: Math.round(r.left), top: Math.round(r.top),
+      right: Math.round(r.right), bottom: Math.round(r.bottom),
+      w: window.innerWidth, h: window.innerHeight
+    }
+  })()`)
+  const wholeNodeVisible =
+    fitted.left >= -2 &&
+    fitted.top >= -2 &&
+    fitted.right <= fitted.w + 2 &&
+    fitted.bottom <= fitted.h + 2
+  reporter.check(
+    '화면보다 큰 노드를 줌인하면 잘리지 않고 전부 보인다',
+    wholeNodeVisible,
+    `노드 화면 좌표 ${fitted.left},${fitted.top} ~ ${fitted.right},${fitted.bottom} (창 ${fitted.w}×${fitted.h})`
+  )
+
+  const bigLevel = await bridge('zoomLevel')
+  const bigInput = await evaluate(`(() => {
+    const el = document.querySelector('.react-flow__node[data-id=' + JSON.stringify(${JSON.stringify(bigId)}) + '] .terminal-area')
+    return el ? getComputedStyle(el).pointerEvents : null
+  })()`)
+  // `auto`도 `all`도 "이벤트를 받는다"는 뜻이다. 막힌 것은 `none`뿐이다.
+  reporter.check(
+    '그 노드는 미리보기 배율이어도 입력을 받는다',
+    bigInput !== null && bigInput !== 'none',
+    `zoomLevel=${bigLevel}, pointer-events=${bigInput}`
+  )
+
+  // 다른 노드는 여전히 미리보기 규칙을 따른다.
+  const otherInput = await evaluate(`(() => {
+    const el = document.querySelector('.terminal-node.zoom-preview:not(.focused) .terminal-area')
+    return el ? getComputedStyle(el).pointerEvents : 'none-such-node'
+  })()`)
+  reporter.check(
+    '포커스되지 않은 노드는 미리보기에서 여전히 입력을 막는다 (SPEC 7.3)',
+    otherInput === 'none' || otherInput === 'none-such-node',
+    `pointer-events=${otherInput}`
+  )
+
+  await bridge(`updateNode(${JSON.stringify(bigId)}, { size: { width: 640, height: 420 } })`)
+  await sleep(400)
 
   // ── 단축키 (SPEC 7.5) ────────────────────────────────
   await key('Digit0', '0', 48)

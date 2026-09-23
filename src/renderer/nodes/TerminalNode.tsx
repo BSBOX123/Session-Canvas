@@ -2,13 +2,13 @@ import { memo, useCallback } from 'react'
 import { NodeResizer, useReactFlow, type NodeProps, type Node } from '@xyflow/react'
 import type { TerminalNodeData } from '@shared/types'
 import { MIN_NODE_SIZE, useWorkspace } from '../state/workspace'
-import { dispose, fitAndResize, focus, focusedNode } from '../terminal/TerminalRegistry'
+import { dispose, fitAndResize, focus } from '../terminal/TerminalRegistry'
 import XtermView from '../terminal/XtermView'
 import NodeHeader from './NodeHeader'
 import NodeDescription from './NodeDescription'
 import DetachedSession from './DetachedSession'
 import NodeOverview from './NodeOverview'
-import { acceptsInput, ZOOM_TO_NODE } from '../canvas/zoomLevel'
+import { acceptsInput, viewportDuration, zoomToFit, ZOOM_TO_NODE } from '../canvas/zoomLevel'
 
 export type TerminalFlowNode = Node<{ node: TerminalNodeData }, 'terminal'>
 
@@ -25,18 +25,21 @@ function TerminalNode({ data, selected }: NodeProps<TerminalFlowNode>): React.JS
   const status = useWorkspace((s) => s.statuses[node.id])
   const markSeen = useWorkspace((s) => s.markSeen)
   const zoomLevel = useWorkspace((s) => s.zoomLevel)
+  const isFocused = useWorkspace((s) => s.focusedNodeId === node.id)
   // 테두리 색·깜빡임이 상태를 나타낸다 (SPEC 8.1).
   const displayState = sessionMissing ? 'detached' : (status?.state ?? 'unknown')
   const { setCenter } = useReactFlow()
 
   const zoomToNode = useCallback(() => {
-    // SPEC 7.3: 노드가 화면에 들어오도록 줌 1.0으로 이동한 뒤 포커스.
-    void setCenter(
-      node.position.x + node.size.width / 2,
-      node.position.y + node.size.height / 2,
-      ZOOM_TO_NODE
-    ).then(() => focus(node.id))
-  }, [node.id, node.position.x, node.position.y, node.size.width, node.size.height, setCenter])
+    // SPEC 7.3: 노드 **전체**가 화면에 들어오도록 맞춘 뒤 포커스한다.
+    // 배율을 1.0으로 고정하면 화면보다 큰 노드가 잘린다.
+    const pane = document.querySelector('.react-flow')?.getBoundingClientRect()
+    const zoom = zoomToFit(node.size, pane ?? { width: 0, height: 0 }, ZOOM_TO_NODE)
+    void setCenter(node.position.x + node.size.width / 2, node.position.y + node.size.height / 2, {
+      zoom,
+      duration: viewportDuration()
+    }).then(() => focus(node.id))
+  }, [node.id, node.position.x, node.position.y, node.size, setCenter])
 
   /**
    * 이전 Claude Code 대화를 이어서 새 세션을 띄운다 (SPEC 5.4).
@@ -91,10 +94,10 @@ function TerminalNode({ data, selected }: NodeProps<TerminalFlowNode>): React.JS
     <div
       className={`terminal-node zoom-${zoomLevel} state-${displayState}${
         status?.unseen ? ' unseen' : ''
-      }`}
+      }${isFocused ? ' focused' : ''}`}
       onMouseDown={() => {
         // 상세 단계가 아니면 클릭이 곧 "이 노드로 줌인"이다 (SPEC 7.3).
-        if (!acceptsInput(zoomLevel)) {
+        if (!acceptsInput(zoomLevel, isFocused)) {
           zoomToNode()
           return
         }
@@ -115,7 +118,7 @@ function TerminalNode({ data, selected }: NodeProps<TerminalFlowNode>): React.JS
         sessionMissing={sessionMissing}
         state={status?.state ?? 'unknown'}
         unseen={status?.unseen ?? false}
-        focused={focusedNode() === node.id}
+        focused={isFocused}
         onZoomToNode={zoomToNode}
         onDetach={detachNode}
         onKill={killNode}

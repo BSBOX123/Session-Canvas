@@ -718,13 +718,17 @@ body {
 
 /* ── 줌 단계 (SPEC 7.3) ───────────────────────────────── */
 
-/* 미리보기 단계: 터미널은 보이지만 입력은 받지 않는다. */
-.terminal-node.zoom-preview .terminal-area,
-.terminal-node.zoom-preview .node-description {
+/*
+ * 미리보기 단계: 터미널은 보이지만 입력은 받지 않는다.
+ * 단 **지금 작업 중인 노드는 예외**다 — 화면보다 큰 노드는 전체를 보려면
+ * 배율이 0.75 아래로 내려갈 수밖에 없고, 그때 입력이 막히면 쓸 수 없다.
+ */
+.terminal-node.zoom-preview:not(.focused) .terminal-area,
+.terminal-node.zoom-preview:not(.focused) .node-description {
   pointer-events: none;
 }
 
-.terminal-node.zoom-preview {
+.terminal-node.zoom-preview:not(.focused) {
   cursor: zoom-in;
 }
 

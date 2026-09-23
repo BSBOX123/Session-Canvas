@@ -41,6 +41,8 @@ interface WorkspaceState extends Omit<Workspace, 'version'> {
   statuses: Readonly<Record<NodeId, NodeStatus>>
   /** 현재 줌 단계 (SPEC 7.3). 배율이 아니라 단계만 들고 있어야 재렌더가 적다. */
   zoomLevel: ZoomLevel
+  /** 지금 포커스된 노드. 미리보기 단계에서 입력을 허용할지 판단에 쓴다 (SPEC 7.3). */
+  focusedNodeId: NodeId | null
 
   hydrate(workspace: Workspace, notice: string | null): void
   addNode(input: NewNodeInput): TerminalNodeData
@@ -51,6 +53,7 @@ interface WorkspaceState extends Omit<Workspace, 'version'> {
   setViewport(viewport: Workspace['viewport']): void
   setSettings(patch: Partial<Workspace['settings']>): void
   setZoomLevel(level: ZoomLevel): void
+  setFocusedNode(id: NodeId | null): void
   setMissingSessions(ids: NodeId[]): void
   markSessionStarted(id: NodeId): void
   setOrphans(orphans: OrphanSession[]): void
@@ -128,6 +131,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   notice: null,
   statuses: {},
   zoomLevel: 'detail',
+  focusedNodeId: null,
 
   hydrate(workspace, notice) {
     set({
@@ -251,6 +255,11 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     // 단계가 바뀔 때만 갱신한다. 배율마다 갱신하면 노드가 전부 다시 그려진다.
     if (get().zoomLevel === level) return
     set({ zoomLevel: level })
+  },
+
+  setFocusedNode(id) {
+    if (get().focusedNodeId === id) return
+    set({ focusedNodeId: id })
   }
 }))
 

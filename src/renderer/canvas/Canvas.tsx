@@ -16,7 +16,7 @@ import OrphanSessions from './OrphanSessions'
 import SettingsPanel from '../settings/SettingsPanel'
 import { useWorkspace, type NewNodeInput } from '../state/workspace'
 import { focus } from '../terminal/TerminalRegistry'
-import { zoomLevelOf } from './zoomLevel'
+import { viewportDuration, zoomLevelOf, zoomToFit, ZOOM_TO_NODE } from './zoomLevel'
 import { useShortcuts } from '../shortcuts/useShortcuts'
 
 /** 모듈 최상단에 두어야 매 렌더마다 새 객체가 되지 않는다. */
@@ -171,13 +171,13 @@ function CanvasInner(): React.JSX.Element {
       const id = (event as CustomEvent<string>).detail
       const node = useWorkspace.getState().nodes.find((n) => n.id === id)
       if (!node) return
+      // 노드 전체가 보이도록 맞춘다 (SPEC 7.3). 배율 고정은 큰 노드를 자른다.
+      const pane = document.querySelector('.react-flow')?.getBoundingClientRect()
+      const zoom = zoomToFit(node.size, pane ?? { width: 0, height: 0 }, ZOOM_TO_NODE)
       void setCenter(
         node.position.x + node.size.width / 2,
         node.position.y + node.size.height / 2,
-        {
-          zoom: 1,
-          duration: 200
-        }
+        { zoom, duration: viewportDuration() }
       ).then(() => focus(id))
     }
     window.addEventListener('session-canvas:focus-node', onFocusNode)
