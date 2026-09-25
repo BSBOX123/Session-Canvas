@@ -101,6 +101,14 @@ body {
   --status-color: #4cc98a;
 }
 
+/*
+ * 백그라운드 작업 대기 (SPEC 8.1). 파랑(작업 중)·주황(입력 대기)과 확실히 달라야
+ * 한다 — 사람이 할 일이 없다는 뜻이다.
+ */
+.terminal-node.state-background {
+  --status-color: #b18cff;
+}
+
 .terminal-node.state-detached {
   --status-color: var(--border);
   border-style: dashed;
@@ -115,6 +123,14 @@ body {
   animation: status-pulse-done 2s ease-in-out infinite;
 }
 
+/*
+ * 백그라운드는 unseen이 아니지만(확인할 일이 아니다) **살아 있다는 표시**는 필요하다.
+ * 그래서 확인 여부와 무관하게, 입력 대기보다 느리고 옅게 숨쉰다.
+ */
+.terminal-node.state-background {
+  animation: status-pulse-background 2.8s ease-in-out infinite;
+}
+
 @keyframes status-pulse-waiting {
   0%,
   100% {
@@ -124,6 +140,18 @@ body {
   50% {
     border-color: #ffc584;
     box-shadow: 0 0 0 6px rgba(255, 157, 60, 0.22);
+  }
+}
+
+@keyframes status-pulse-background {
+  0%,
+  100% {
+    border-color: #b18cff;
+    box-shadow: 0 0 0 0 rgba(177, 140, 255, 0);
+  }
+  50% {
+    border-color: #cdb4ff;
+    box-shadow: 0 0 0 4px rgba(177, 140, 255, 0.16);
   }
 }
 
@@ -145,6 +173,11 @@ body {
   .terminal-node.state-done.unseen {
     animation: none;
     box-shadow: 0 0 0 5px rgba(255, 157, 60, 0.2);
+  }
+
+  .terminal-node.state-background {
+    animation: none;
+    box-shadow: 0 0 0 4px rgba(177, 140, 255, 0.2);
   }
 }
 

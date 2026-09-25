@@ -98,6 +98,8 @@ export interface StatusChange {
   state: SessionState
   at: string
   claudeSessionId: string | null
+  /** 남은 백그라운드 작업 개수. 이 이벤트로는 알 수 없으면 `null` (SPEC 8.2). */
+  backgroundTasks: number | null
 }
 
 export interface StatusApi {

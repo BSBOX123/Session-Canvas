@@ -13,6 +13,7 @@ const TABLE: Record<SessionState, StatusPresentation> = {
   unknown: { symbol: '○', label: '대기', className: 'unknown' },
   working: { symbol: '◐', label: '작업 중', className: 'working' },
   waiting: { symbol: '●', label: '입력 대기', className: 'waiting' },
+  background: { symbol: '⧗', label: '백그라운드', className: 'background' },
   done: { symbol: '✓', label: '완료', className: 'done' },
   detached: { symbol: '–', label: '세션 없음', className: 'detached' }
 }

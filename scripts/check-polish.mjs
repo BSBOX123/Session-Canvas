@@ -162,7 +162,8 @@ try {
       nodeId: ${JSON.stringify(nodeId)},
       state: ${JSON.stringify(state)},
       at: new Date().toISOString(),
-      claudeSessionId: null
+      claudeSessionId: null,
+      backgroundTasks: null
     }), 1)`)
     await sleep(350)
     return borderOf()
@@ -238,6 +239,19 @@ try {
 
   // 상태 색은 테마와 무관하게 유지되어야 한다.
   const afterThemeBorder = await borderOf()
+  // SPEC 8.1 — 백그라운드는 주황(입력 대기)과 확실히 달라야 한다.
+  const background = await apply('background')
+  reporter.check(
+    '백그라운드 → 보라 테두리 + 느린 숨쉬기 (SPEC 8.1)',
+    background.color === 'rgb(177, 140, 255)' && background.animation === 'status-pulse-background',
+    `${background.color}, 애니메이션=${background.animation}`
+  )
+  reporter.check(
+    '백그라운드는 입력 대기와 다른 색이다',
+    background.color !== 'rgb(255, 157, 60)' && background.color !== 'rgb(255, 180, 101)',
+    background.color
+  )
+
   reporter.check(
     '테마를 바꿔도 상태 테두리 색은 그대로',
     afterThemeBorder.color === 'rgb(232, 235, 239)',

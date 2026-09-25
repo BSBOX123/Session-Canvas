@@ -128,6 +128,7 @@ session-canvas/
 ├─ scripts/
 │  ├─ lib/cdp.mjs                    # CDP 점검 공용 도구 (14.3)
 │  ├─ dev-isolated.mjs               # 격리 개발 모드 (14.2)
+│  ├─ update-app.mjs                 # 패키징 앱에 코드 반영 (4.3)
 │  ├─ inspect-renderer.mjs           # 렌더러 스모크 확인 (14.3)
 │  ├─ check-terminal.mjs             # 터미널 기능 확인 (14.3)
 │  ├─ check-canvas.mjs               # 캔버스·다중 노드 확인 (14.3)
@@ -183,6 +184,14 @@ session-canvas/
 ### 4.3 실행 환경 요구사항
 - macOS 14+, Node.js 20+, **tmux 3.3+** (`brew install tmux`), Claude Code CLI 설치
 - 앱 시작 시 `tmux -V`로 버전을 확인하고, 없거나 낮으면 **설치 안내 화면**을 띄운다(앱이 죽으면 안 된다). 단계 6에서 `SHELL=/bin/sh PATH=<tmux 없는 경로>`로 띄워 확인했다.
+
+**패키징 앱에 코드를 반영하기** — `npm run app:update` (`scripts/update-app.mjs`).
+
+`npm run dev`는 고친 코드를 바로 띄우지만, Finder로 켜는 `.app`은 번들 안에 **복사된** 코드를 쓴다. 그래서 고칠 때마다 다시 패키징해야 한다. 스크립트가 필요한 이유:
+
+- electron-builder는 출력 폴더를 **지우고** 다시 만든다. 지금 그 번들로 앱이 돌고 있으면 실행 중인 파일을 갈아치우는 셈이다 → 새 폴더(`dist-next`)에 먼저 만들고, 꺼져 있을 때만 바꿔 넣는다
+- **앱을 강제로 종료하지 않는다.** 노드 안에서 에이전트가 돌고 있을 수 있다(0.4). 켜져 있으면 안내만 하고 새 번들은 `dist-next`에 남긴다
+- `npm run build`를 반드시 먼저 돌린다. `out/`이 낡은 채로 패키징하면 **예전 코드가 든 앱**이 나온다
 
 ### 4.4 ⚠️ PATH 문제 (반드시 처리)
 Finder/Dock에서 실행한 macOS 앱은 **사용자 셸의 PATH를 물려받지 않는다.** `/opt/homebrew/bin`의 `tmux`, `claude`를 찾지 못한다.
@@ -371,6 +380,7 @@ CSS transform으로 확대·축소된 터미널은 글자가 뭉개지므로, �
 | `unknown` | ○ | 대기 | 흰색 | Claude Code 외 명령, 또는 아직 이벤트 없음 |
 | `working` | ◐ | 작업 중 | 파랑 | 프롬프트 제출 후 도구 실행 중 |
 | `waiting` | ● | 입력 대기 | 주황 + 깜빡임 | 권한 요청·입력 대기 알림 |
+| `background` | ⧗ | 백그라운드 | 보라 + 느린 숨쉬기 | 턴은 끝났지만 **백그라운드 작업이 남아 있음** |
 | `done` | ✓ | 완료 | 초록 + 깜빡임(느리게) | 응답 종료, 아직 확인 안 함 |
 | `detached` | – | 세션 없음 | 회색 점선 | tmux 세션이 없음 (5.4) |
 
@@ -379,6 +389,9 @@ CSS transform으로 확대·축소된 터미널은 글자가 뭉개지므로, �
 - 선택 표시는 테두리가 아니라 **바깥쪽 링(outline)** 으로 그린다 — 선택했다고 상태 색을 잃으면 안 된다.
 - 상태 색은 **테마(9.1)와 무관하게 고정**이다. 테마를 바꿨다고 상태를 못 알아보면 안 된다.
 - `waiting`, `done`은 **unseen** 플래그를 가진다. 사용자가 그 노드에 포커스하면 unseen이 해제되고, `done`은 `unknown`으로 내려간다.
+- **`background`는 unseen이 아니다.** 사람이 확인할 일이 아니라 진행 상황이다. Dock 배지·알림(8.6)·`J` 순회(7.5)에서 뺀다 — 거기에 끼면 정작 나를 기다리는 노드가 묻힌다.
+- 다만 `background`는 **unseen과 무관하게 숨쉰다.** "살아 있다"는 표시는 필요하고, 그 속도는 `waiting`보다 느리고 옅다. `unknown`(흰색, 정지)과 구별되어야 한다.
+- `waiting`(주황)과 `background`(보라)를 섞으면 안 된다. **하나는 내가 할 일이 있다는 뜻이고, 하나는 없다는 뜻이다.**
 
 ### 8.2 이벤트 → 상태 매핑 (`mapEvent.ts`, 순수 함수)
 
@@ -391,11 +404,20 @@ CSS transform으로 확대·축소된 터미널은 글자가 뭉개지므로, �
 | `PreToolUse`, `PostToolUse` | `working` | 권한 승인 후 `waiting` → `working` 복귀에 필요 |
 | `PermissionRequest` | `waiting` | 권한 결정이 필요할 때 발생. `Notification`보다 이르고 확실하다 |
 | `Notification` | `waiting` | `notification_type`이 `auth_success`·`elicitation_*`·`quota_*`면 무시. **필드가 없으면 `waiting`으로 본다** |
-| `Stop` | `done` | |
-| `StopFailure` | `done` | 오류로 끝난 턴도 사용자가 봐야 한다 |
+| `Stop` | `background_tasks`가 비어 있으면 `done`, 남아 있으면 **`background`** | 아래 "백그라운드 작업" |
+| `StopFailure` | 같음 | 오류로 끝난 턴도 사용자가 봐야 한다 |
 | `SessionEnd` | `unknown` | |
 
 모르는 이벤트는 무시한다(앱이 죽으면 안 됨).
+
+**백그라운드 작업 (`background_tasks`)** — 실측 2026-09-25 / 2.1.280. `Stop` 페이로드에 `background_tasks` 배열과 `session_crons` 배열이 온다. 비어 있으면 `[]`다.
+
+- 턴이 끝났어도 백그라운드 작업이 남아 있으면 **완료가 아니다.** 그 작업이 끝나면 에이전트가 스스로 깨어나므로 사람이 할 일은 없다 → `background`(8.1)
+- 배열이 **아니면** (예전 버전이거나 필드가 빠졌으면) "모른다"로 보고 예전처럼 `done`으로 둔다. "0개"라고 단정하지 않는다
+- `Stop`만 이 값을 들고 온다. 그래서 `StatusWatcher`가 **노드별로 마지막 개수를 기억한다.** 순수 함수인 `mapEvent`는 이벤트 하나만 보므로 여기에 상태를 두지 않는다
+- 기억한 개수가 0보다 크면, 그 뒤에 오는 **`Notification` 유래 `waiting`을 `background`로 바꾼다**(`resolveState`). 턴이 끝난 뒤 Claude Code가 유휴 알림을 보내면 노드가 주황으로 바뀌어 "입력 대기"라고 거짓말을 하기 때문이다
+- ⚠️ 이 한 가지는 8.2의 다른 원칙("놓치는 것보다 한 번 더 알리는 쪽이 낫다")과 **반대 방향**이다. 그래서 **`PermissionRequest`는 그대로 통과시킨다** — 백그라운드 중에도 권한은 사람이 허락해야 하고, 그걸 숨기면 노드가 영원히 멈춘다
+- ⚠️ **`Notification` 페이로드에 `background_tasks`가 오는지는 확인하지 못했다.** 그래서 기억해 둔 값에 의존한다. 확인되면 그 값을 직접 쓰는 쪽이 더 정확하다
 
 **실측한 stdin JSON (2.1.278)** — 모든 이벤트 공통: `session_id`, `transcript_path`, `cwd`, `hook_event_name`. 대부분 `prompt_id`, `permission_mode`가 붙고, 도구 이벤트에는 `effort`가 붙는다.
 
@@ -406,7 +428,7 @@ CSS transform으로 확대·축소된 터미널은 글자가 뭉개지므로, �
 | `PreToolUse` | `tool_name`, `tool_input`, `tool_use_id` |
 | `PermissionRequest` | `tool_name`, `tool_input`, `permission_suggestions` (`tool_use_id` 없음) |
 | `PostToolUse` | `tool_name`, `tool_input`, `tool_use_id` |
-| `Stop` | `stop_hook_active`, `last_assistant_message` |
+| `Stop` | `stop_hook_active`, `last_assistant_message`, `background_tasks`, `session_crons` |
 | `SessionEnd` | `reason` |
 
 > ⚠️ **문서 요약과 실제가 달랐던 것**: SessionStart의 이유는 `session_start_reason`이 아니라 **`source`**, UserPromptSubmit의 프롬프트는 `user_input`이 아니라 **`prompt`**, SessionEnd의 이유는 **`reason`**이다. `Notification`의 `notification_type`은 문서에만 있고 실측하지 못했다(headless `-p` 모드에서는 발생하지 않는다) — 그래서 필드가 없을 때도 안전하게 동작하도록 만든다.
@@ -867,3 +889,4 @@ Figma는 `V`·`F`·`T` 한 글자 단축키로 살지만 **우리 터미널은 �
 | v0.2.1 | 2026-09-23 | **v2 방향 재정의.** 목적을 "에이전트가 한 일을 붙들어 두기"로 고정하고 일반 코드 뷰어·DB 그래프·MCP 노드를 목표에서 제외(§15.2, §19.2). Claude Code transcript에 필요한 데이터가 전부 있음을 실측해 §16 신설 — `Edit`의 `old_string`/`new_string`으로 diff 재구성 가능(R17 해소). 변경 기준은 "마지막 확인 지점 이후"로 결정하고 `unseen`(주의)과 `unreviewed`(검토)를 분리(§17). 단계 8~10을 작업 기록·변경 뷰어·역추적으로 교체, 캔버스 편집은 11단계로 |
 | v0.2.2 | 2026-09-23 | §7.3 개정: "노드로 줌인"을 배율 1.0 고정에서 **노드 전체가 들어오도록 맞추기**로 바꿨다(큰 노드가 잘리던 문제). 작업 중인 노드는 미리보기 단계에서도 입력을 받는다. 창이 가려지면 애니메이션 없이 즉시 이동한다(숨겨진 페이지는 rAF가 멈춰 이동이 영영 완료되지 않는다). React Flow `fitView` 대신 배율을 직접 계산한다 |
 | v0.2.3 | 2026-09-23 | **단계 7 완료.** §18.2 개정 — `NodeKind`에 쓰지 않는 종류를 미리 넣지 않는다(지금은 `'terminal'` 하나). §18.3을 "추상 레지스트리" 대신 `nodes/nodeRuntime.ts`의 **계약**으로 구체화. §18.4에 v1/v2 두 모양을 함께 읽는 규칙과 모르는 `kind`는 버린다는 규칙 추가. §4.2에 `nodes/nodeRuntime.ts` 추가 |
+| v0.2.4 | 2026-09-25 | **`background` 상태 추가.** 백그라운드 작업을 기다리는 동안 노드가 주황(`입력 대기`)으로 보여 "사람이 할 일이 있다"고 거짓말하던 문제. §8.1에 보라 테두리 + 느린 숨쉬기로 정의하고 unseen·알림·`J` 순회에서 제외. §8.2에 `Stop`의 `background_tasks` 실측 결과와 `resolveState` 규칙 추가 — `StatusWatcher`가 노드별 개수를 기억하고, 유휴 `Notification`을 `background`로 덮는다(`PermissionRequest`는 통과). §4.2에 `scripts/update-app.mjs` 추가 |

@@ -94,7 +94,14 @@ export const DEFAULT_SETTINGS: WorkspaceSettings = {
   theme: { preset: 'dark', accent: '#4c8dff' }
 }
 
-export type SessionState = 'unknown' | 'working' | 'waiting' | 'done' | 'detached'
+/**
+ * 노드 상태 (SPEC 8.1).
+ *
+ * `background`는 **에이전트가 백그라운드 작업을 기다리는 중**이다. 사람이 할 일은
+ * 없으므로 `waiting`(입력 대기)과 반드시 구별해야 한다 — 둘을 섞으면 정작 나를
+ * 기다리는 노드를 못 찾는다.
+ */
+export type SessionState = 'unknown' | 'working' | 'waiting' | 'background' | 'done' | 'detached'
 
 export interface NodeStatus {
   nodeId: NodeId

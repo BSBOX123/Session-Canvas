@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isUnseenState, mapEvent } from '../src/main/status/mapEvent'
+import { isUnseenState, mapEvent, resolveState } from '../src/main/status/mapEvent'
 
 const base = {
   session_id: 'sess-123',
@@ -15,29 +15,68 @@ describe('mapEvent', () => {
   it('SessionStart → unknown, session_id를 claudeSessionId로 넘긴다', () => {
     expect(mapEvent(event('SessionStart', { source: 'startup' }))).toEqual({
       state: 'unknown',
-      claudeSessionId: 'sess-123'
+      claudeSessionId: 'sess-123',
+      backgroundTasks: 0,
+      event: 'SessionStart'
     })
   })
 
   it.each(['UserPromptSubmit', 'PreToolUse', 'PostToolUse'])('%s → working', (name) => {
-    expect(mapEvent(event(name))).toEqual({ state: 'working', claudeSessionId: null })
+    expect(mapEvent(event(name))).toEqual({
+      state: 'working',
+      claudeSessionId: null,
+      backgroundTasks: null,
+      event: name
+    })
   })
 
   it('PermissionRequest → waiting', () => {
     expect(mapEvent(event('PermissionRequest', { tool_name: 'Bash' }))).toEqual({
       state: 'waiting',
-      claudeSessionId: null
+      claudeSessionId: null,
+      backgroundTasks: null,
+      event: 'PermissionRequest'
     })
   })
 
-  it.each(['Stop', 'StopFailure'])('%s → done', (name) => {
-    expect(mapEvent(event(name))).toEqual({ state: 'done', claudeSessionId: null })
+  it.each(['Stop', 'StopFailure'])('%s → done (백그라운드 작업이 없을 때)', (name) => {
+    expect(mapEvent(event(name, { background_tasks: [] }))).toEqual({
+      state: 'done',
+      claudeSessionId: null,
+      backgroundTasks: 0,
+      event: name
+    })
+  })
+
+  // 실측: Stop 페이로드에 `background_tasks` 배열이 온다 (2026-09-25 / 2.1.280).
+  it.each(['Stop', 'StopFailure'])(
+    '%s + 백그라운드 작업이 남아 있으면 → background (완료가 아니다)',
+    (name) => {
+      expect(mapEvent(event(name, { background_tasks: [{ id: 'bk1' }] }))).toEqual({
+        state: 'background',
+        claudeSessionId: null,
+        backgroundTasks: 1,
+        event: name
+      })
+    }
+  )
+
+  it('background_tasks 필드가 없으면 예전처럼 done으로 본다', () => {
+    // 예전 Claude Code이거나 필드가 빠진 경우. "0개"라고 단정하지 않는다.
+    expect(mapEvent(event('Stop'))).toEqual({
+      state: 'done',
+      claudeSessionId: null,
+      backgroundTasks: null,
+      event: 'Stop'
+    })
   })
 
   it('SessionEnd → unknown (claudeSessionId는 건드리지 않는다)', () => {
     expect(mapEvent(event('SessionEnd', { reason: 'other' }))).toEqual({
       state: 'unknown',
-      claudeSessionId: null
+      claudeSessionId: null,
+      backgroundTasks: 0,
+      event: 'SessionEnd'
     })
   })
 
@@ -84,7 +123,9 @@ describe('mapEvent', () => {
     it('SessionStart에 session_id가 없어도 상태는 준다', () => {
       expect(mapEvent('{"hook_event_name":"SessionStart"}')).toEqual({
         state: 'unknown',
-        claudeSessionId: null
+        claudeSessionId: null,
+        backgroundTasks: 0,
+        event: 'SessionStart'
       })
     })
   })
@@ -97,5 +138,34 @@ describe('isUnseenState (SPEC 8.1)', () => {
     expect(isUnseenState('working')).toBe(false)
     expect(isUnseenState('unknown')).toBe(false)
     expect(isUnseenState('detached')).toBe(false)
+  })
+
+  it('background는 unseen이 아니다 — 확인할 일이 아니라 진행 상황이다', () => {
+    expect(isUnseenState('background')).toBe(false)
+  })
+})
+
+// SPEC 8.2 — 턴이 끝난 뒤의 유휴 알림을 "입력 대기"로 착각하지 않는다.
+describe('resolveState (SPEC 8.2)', () => {
+  const notification = mapEvent(event('Notification', { notification_type: 'idle_prompt' }))
+  const permission = mapEvent(event('PermissionRequest', { tool_name: 'Bash' }))
+
+  it('백그라운드 작업이 남아 있으면 유휴 Notification을 background로 본다', () => {
+    expect(notification).not.toBeNull()
+    expect(resolveState(notification!, 1)).toBe('background')
+  })
+
+  it('백그라운드 작업이 없으면 그대로 waiting이다', () => {
+    expect(resolveState(notification!, 0)).toBe('waiting')
+  })
+
+  it('PermissionRequest는 백그라운드 중에도 통과한다 — 숨기면 노드가 멈춘다', () => {
+    expect(permission).not.toBeNull()
+    expect(resolveState(permission!, 3)).toBe('waiting')
+  })
+
+  it('working·done은 백그라운드 개수와 무관하다', () => {
+    const working = mapEvent(event('PreToolUse'))
+    expect(resolveState(working!, 2)).toBe('working')
   })
 })

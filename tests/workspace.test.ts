@@ -70,9 +70,13 @@ describe('상태 전이 (SPEC 8.1)', () => {
   }
 
   function apply(id: string, state: SessionState, claudeSessionId: string | null = null): void {
-    useWorkspace
-      .getState()
-      .applyStatus({ nodeId: id, state, at: new Date().toISOString(), claudeSessionId })
+    useWorkspace.getState().applyStatus({
+      nodeId: id,
+      state,
+      at: new Date().toISOString(),
+      claudeSessionId,
+      backgroundTasks: null
+    })
   }
 
   it('waiting과 done만 unseen이 된다', () => {
