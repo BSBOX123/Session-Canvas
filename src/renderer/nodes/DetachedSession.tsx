@@ -20,7 +20,7 @@ function DetachedSession({ node, onStart, onResume }: DetachedSessionProps): Rea
     <div className="detached-session nodrag nowheel nopan">
       <p className="detached-title">세션 없음</p>
       <p className="detached-body">
-        이 노드의 tmux 세션(<code>{node.tmuxSession}</code>)이 없습니다.
+        이 노드의 tmux 세션(<code>{node.terminal.tmuxSession}</code>)이 없습니다.
         <br />
         앱이나 기기를 다시 시작하면서 사라졌을 수 있어요.
       </p>
@@ -28,12 +28,12 @@ function DetachedSession({ node, onStart, onResume }: DetachedSessionProps): Rea
         <button type="button" className="detached-button" onClick={onStart}>
           새로 시작
         </button>
-        {node.claudeSessionId !== null && (
+        {node.terminal.claudeSessionId !== null && (
           <button
             type="button"
             className="detached-button secondary"
             onClick={onResume}
-            title={`claude --resume ${node.claudeSessionId}`}
+            title={`claude --resume ${node.terminal.claudeSessionId}`}
           >
             이전 대화 이어서
           </button>

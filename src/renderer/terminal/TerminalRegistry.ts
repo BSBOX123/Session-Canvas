@@ -1,4 +1,6 @@
 /**
+ * 터미널 노드의 런타임 (SPEC 6.4, 18.3의 `NodeRuntime` 계약을 만족한다).
+ *
  * SPEC 6.4 — React 노드가 언마운트되어도 터미널 버퍼가 사라지면 안 된다.
  *
  * 그래서 노드별 `{ terminal, host }`를 React 바깥인 이 모듈이 들고 있는다.
@@ -226,7 +228,11 @@ export function acquire(node: TerminalNodeData, container: HTMLElement): Termina
   terminal.onData((data) => window.api.pty.write(node.id, data))
 
   void window.api.pty
-    .open({ id: node.id, cwd: node.cwd, command: node.command }, terminal.cols, terminal.rows)
+    .open(
+      { id: node.id, cwd: node.terminal.cwd, command: node.terminal.command },
+      terminal.cols,
+      terminal.rows
+    )
     .catch((error: unknown) => {
       terminal.write(`\r\n\x1b[31m터미널을 열지 못했습니다: ${String(error)}\x1b[0m\r\n`)
     })
@@ -288,6 +294,12 @@ export function dispose(id: NodeId, mode: 'detach' | 'kill'): void {
   entry.terminal.dispose()
   entry.host.remove()
 }
+
+/**
+ * 화면에서 떼어내도 살아 있어야 한다 (SPEC 6.4).
+ * `NodeRuntime` 계약의 일부다.
+ */
+export const survivesUnmount = true
 
 /** 개발 모드 점검용 (SPEC 14.3). */
 export function debugTerminals(): Record<NodeId, Terminal> {

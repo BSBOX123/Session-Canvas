@@ -106,6 +106,85 @@ describe('StatusWatcher', () => {
 
   // 처음 켠 사람은 이 디렉터리가 없다. 만들지 않고 watch하면 던지고, 그 뒤
   // 훅이 디렉터리를 만들어도 영영 눈치채지 못한다.
+  // SPEC 8.2 — 백그라운드 작업 기억. 이것이 없으면 턴이 끝난 뒤 유휴 알림에
+  // 노드가 주황(입력 대기)으로 바뀌어 "사람이 할 일이 있다"고 거짓말한다.
+  describe('백그라운드 작업 (SPEC 8.2)', () => {
+    it('Stop에 백그라운드 작업이 남아 있으면 background로 알린다', async () => {
+      await start(['node123'])
+      await writeStatus('node123', {
+        hook_event_name: 'Stop',
+        background_tasks: [{ id: 'bk1' }]
+      })
+
+      await waitFor(() => seen.length > 0, 'background 상태')
+      expect(seen.at(-1)).toMatchObject({ state: 'background', backgroundTasks: 1 })
+    })
+
+    it('그 뒤에 오는 유휴 Notification도 background로 유지된다', async () => {
+      await start(['node123'])
+      await writeStatus('node123', {
+        hook_event_name: 'Stop',
+        background_tasks: [{ id: 'bk1' }]
+      })
+      await waitFor(() => seen.some((c) => c.state === 'background'), '첫 background')
+
+      // Notification에는 background_tasks가 없다. 기억해 둔 개수로 판단해야 한다.
+      await writeStatus('node123', {
+        hook_event_name: 'Notification',
+        notification_type: 'idle_prompt'
+      })
+      await waitFor(() => seen.length > 1, '알림 반영')
+      expect(seen.at(-1)?.state).toBe('background')
+    })
+
+    it('백그라운드 작업이 끝나면(Stop에 빈 배열) 다시 done → 알림은 waiting', async () => {
+      await start(['node123'])
+      await writeStatus('node123', { hook_event_name: 'Stop', background_tasks: [{ id: 'bk1' }] })
+      await waitFor(() => seen.some((c) => c.state === 'background'), '첫 background')
+
+      await writeStatus('node123', { hook_event_name: 'Stop', background_tasks: [] })
+      await waitFor(() => seen.some((c) => c.state === 'done'), 'done 복귀')
+
+      await writeStatus('node123', {
+        hook_event_name: 'Notification',
+        notification_type: 'idle_prompt'
+      })
+      await waitFor(() => seen.at(-1)?.state === 'waiting', 'waiting 복귀')
+      expect(seen.at(-1)?.state).toBe('waiting')
+    })
+
+    it('노드가 사라지면 기억도 버린다 (같은 id가 다시 와도 물려받지 않는다)', async () => {
+      await start(['node123'])
+      await writeStatus('node123', { hook_event_name: 'Stop', background_tasks: [{ id: 'bk1' }] })
+      await waitFor(() => seen.some((c) => c.state === 'background'), '첫 background')
+
+      // 노드를 닫았다가 같은 id로 되살린 상황 (SPEC 5.4).
+      watcher!.setKnownNodes([])
+      watcher!.setKnownNodes(['node123'])
+
+      await writeStatus('node123', {
+        hook_event_name: 'Notification',
+        notification_type: 'idle_prompt'
+      })
+      await waitFor(() => seen.at(-1)?.state === 'waiting', '기억이 비워졌는지')
+      expect(seen.at(-1)?.state).toBe('waiting')
+    })
+
+    it('PermissionRequest는 백그라운드 중에도 waiting으로 통과한다', async () => {
+      await start(['node123'])
+      await writeStatus('node123', { hook_event_name: 'Stop', background_tasks: [{ id: 'bk1' }] })
+      await waitFor(() => seen.some((c) => c.state === 'background'), '첫 background')
+
+      await writeStatus('node123', {
+        hook_event_name: 'PermissionRequest',
+        tool_name: 'Bash',
+        tool_input: {}
+      })
+      await waitFor(() => seen.at(-1)?.state === 'waiting', '권한 요청')
+      expect(seen.at(-1)?.state).toBe('waiting')
+    })
+  })
+
   it('디렉터리가 없으면 직접 만들고 그 뒤 변화를 잡는다', async () => {
     const fresh = join(dir, 'not-yet')
     watcher = new StatusWatcher(fresh, (change) => seen.push(change))

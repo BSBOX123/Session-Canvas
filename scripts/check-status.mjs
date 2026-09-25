@@ -146,7 +146,8 @@ try {
     const status = await statusOf()
     if (status && seen.at(-1)?.state !== status.state) seen.push(status)
     const node = await nodeOf()
-    if (node?.claudeSessionId) sessionId = node.claudeSessionId
+    // v2에서 터미널 고유 필드는 `terminal` 페이로드 안에 있다 (SPEC 18.2).
+    if (node?.terminal?.claudeSessionId) sessionId = node.terminal.claudeSessionId
     return status
   }
   const until = async (predicate, label, timeoutMs) => {

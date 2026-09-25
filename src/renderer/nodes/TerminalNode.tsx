@@ -46,10 +46,13 @@ function TerminalNode({ data, selected }: NodeProps<TerminalFlowNode>): React.JS
    * `command`를 `claude --resume <id>`로 바꾸면 다음 `pty.open`이 그걸 쓴다.
    */
   const resumeSession = useCallback(() => {
-    if (node.claudeSessionId === null) return
-    updateNode(node.id, { command: `claude --resume ${node.claudeSessionId}` })
+    const sessionId = node.terminal.claudeSessionId
+    if (sessionId === null) return
+    updateNode(node.id, {
+      terminal: { ...node.terminal, command: `claude --resume ${sessionId}` }
+    })
     markSessionStarted(node.id)
-  }, [node.claudeSessionId, node.id, markSessionStarted, updateNode])
+  }, [node.terminal, node.id, markSessionStarted, updateNode])
 
   /**
    * 리사이즈 중 크기·위치를 반영한다.

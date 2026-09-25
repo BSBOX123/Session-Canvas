@@ -7,11 +7,13 @@
 import { nanoid } from 'nanoid'
 import { create } from 'zustand'
 import type { OrphanSession, StatusChange } from '@shared/ipc'
+import { WORKSPACE_VERSION } from '@shared/types'
 import {
   DEFAULT_SETTINGS,
   type NodeId,
   type NodeStatus,
   type TerminalNodeData,
+  type TerminalPayload,
   type Workspace
 } from '@shared/types'
 import { isUnseenState } from './isUnseenState'
@@ -49,6 +51,13 @@ interface WorkspaceState extends Omit<Workspace, 'version'> {
   /** 분리된 세션을 원래 id 그대로 노드로 되살린다 (SPEC 5.4). */
   restoreNode(session: OrphanSession, position: { x: number; y: number }): TerminalNodeData
   updateNode(id: NodeId, patch: Partial<TerminalNodeData>): void
+  /**
+   * 터미널 페이로드만 고친다 (SPEC 18.2).
+   *
+   * `updateNode`는 얕은 병합이라 `{ terminal: { ... } }`를 넘기면 넘기지 않은
+   * 필드(`cwd`·`tmuxSession`)가 사라진다. 페이로드는 이쪽으로만 고친다.
+   */
+  updateTerminal(id: NodeId, patch: Partial<TerminalPayload>): void
   removeNode(id: NodeId): void
   setViewport(viewport: Workspace['viewport']): void
   setSettings(patch: Partial<Workspace['settings']>): void
@@ -72,17 +81,24 @@ function makeNode(
   const now = new Date().toISOString()
   return {
     id,
+    kind: 'terminal',
     title: input.title,
     description: '',
-    cwd: input.cwd,
-    command: input.command,
-    tmuxSession: `sc-${id}`,
-    claudeSessionId: null,
     position,
     size: { ...DEFAULT_NODE_SIZE },
+    z: 0,
+    parentId: null,
     color: null,
+    locked: false,
+    hidden: false,
     createdAt: now,
-    updatedAt: now
+    updatedAt: now,
+    terminal: {
+      cwd: input.cwd,
+      command: input.command,
+      tmuxSession: `sc-${id}`,
+      claudeSessionId: null
+    }
   }
 }
 
@@ -201,9 +217,14 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       }
 
       // SessionStart가 준 세션 id는 저장한다 — [이전 대화 이어서]에 쓴다 (SPEC 5.4).
-      if (change.claudeSessionId !== null && node.claudeSessionId !== change.claudeSessionId) {
+      if (
+        change.claudeSessionId !== null &&
+        node.terminal.claudeSessionId !== change.claudeSessionId
+      ) {
         next.nodes = state.nodes.map((n) =>
-          n.id === change.nodeId ? { ...n, claudeSessionId: change.claudeSessionId } : n
+          n.id === change.nodeId
+            ? { ...n, terminal: { ...n.terminal, claudeSessionId: change.claudeSessionId } }
+            : n
         )
       }
       return next
@@ -231,6 +252,20 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     set((state) => ({
       nodes: state.nodes.map((node) =>
         node.id === id ? { ...node, ...patch, updatedAt: new Date().toISOString() } : node
+      )
+    }))
+  },
+
+  updateTerminal(id, patch) {
+    set((state) => ({
+      nodes: state.nodes.map((node) =>
+        node.id === id
+          ? {
+              ...node,
+              terminal: { ...node.terminal, ...patch },
+              updatedAt: new Date().toISOString()
+            }
+          : node
       )
     }))
   },
@@ -281,7 +316,7 @@ export function startPersistence(): () => void {
 /** 저장 대상만 골라 문자열로. 얕은 비교로는 매 렌더 저장이 튄다. */
 function selectPersisted(state: WorkspaceState): string {
   return JSON.stringify({
-    version: 1,
+    version: WORKSPACE_VERSION,
     viewport: state.viewport,
     nodes: state.nodes,
     settings: state.settings

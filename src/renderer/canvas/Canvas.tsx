@@ -30,6 +30,7 @@ const STATUS_COLORS: Record<string, string> = {
   unknown: '#2b3a4a',
   working: '#6ba8ff',
   waiting: '#ffa94d',
+  background: '#b18cff',
   done: '#64c98a',
   detached: '#3a3f47'
 }

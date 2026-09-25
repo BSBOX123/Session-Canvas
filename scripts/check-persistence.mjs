@@ -122,14 +122,27 @@ try {
   const sessions = await tmux(['list-sessions', '-F', '#{session_name}']).then((r) => r.stdout)
   reporter.check('tmux 세션이 생겼다', sessions.includes(`sc-${nodeId}`), `sc-${nodeId}`)
 
-  // SPEC 5.1: 사용자 기본 tmux 서버와 격리
-  const defaultServer = await execFileAsync('tmux', ['list-sessions'])
+  // SPEC 5.1: 사용자 기본 tmux 서버와 격리.
+  //
+  // `TMUX`를 반드시 지운다 — 점검을 Session Canvas 노드 **안에서** 돌리면 그 값이
+  // 전용 소켓을 가리켜, 바로 그 소켓을 "기본 서버"로 착각하고 `sc-*`를 발견한다.
+  // `-L default`로 소켓도 못박는다.
+  const env = { ...process.env }
+  delete env.TMUX
+  delete env.TMUX_PANE
+  const defaultServer = await execFileAsync('tmux', ['-L', 'default', 'list-sessions'], { env })
     .then((r) => r.stdout)
+    // 기본 서버가 아예 없으면 연결 오류가 난다 — 그게 가장 깨끗한 상태다.
     .catch(() => '')
+  const leaked = defaultServer.includes('sc-')
   reporter.check(
     '사용자 기본 tmux 서버에 영향 없음 (SPEC 5.1)',
-    !defaultServer.includes('sc-'),
-    defaultServer.trim().length === 0 ? '기본 서버에 세션 없음' : '기본 서버에 sc-* 없음'
+    !leaked,
+    leaked
+      ? `기본 서버에 sc-* 있음: ${defaultServer.trim().replace(/\n/g, ', ')}`
+      : defaultServer.trim().length === 0
+        ? '기본 서버에 세션 없음'
+        : '기본 서버에 sc-* 없음'
   )
 
   // SPEC 5.2: 상태줄 숨김 · prefix 비활성

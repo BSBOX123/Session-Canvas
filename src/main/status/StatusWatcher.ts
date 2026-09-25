@@ -8,7 +8,7 @@ import { mkdir, readFile, readdir, stat } from 'node:fs/promises'
 import { watch, type FSWatcher } from 'node:fs'
 import { join } from 'node:path'
 import { NODE_ID_PATTERN, type NodeId, type SessionState } from '../../shared/types'
-import { mapEvent } from './mapEvent'
+import { mapEvent, resolveState } from './mapEvent'
 
 const DEBOUNCE_MS = 50
 
@@ -17,11 +17,20 @@ export interface StatusChange {
   state: SessionState
   at: string
   claudeSessionId: string | null
+  /** 남은 백그라운드 작업 개수. 이 이벤트로는 알 수 없으면 `null` (SPEC 8.2). */
+  backgroundTasks: number | null
 }
 
 export class StatusWatcher {
   private watcher: FSWatcher | null = null
   private readonly timers = new Map<NodeId, NodeJS.Timeout>()
+  /**
+   * 노드별로 마지막에 보고된 백그라운드 작업 개수 (SPEC 8.2).
+   *
+   * `Stop`만 이 값을 들고 오므로 기억해 둬야 한다 — 그 뒤에 오는 유휴
+   * `Notification`을 `입력 대기`로 착각하지 않으려면 필요하다.
+   */
+  private readonly pending = new Map<NodeId, number>()
   /** 워크스페이스에 없는 노드의 파일은 무시한다 (삭제하지는 않는다). */
   private known = new Set<NodeId>()
   /** 이 시각보다 오래된 상태 파일은 지난번 실행이 남긴 것이다 (SPEC 8.5). */
@@ -34,6 +43,11 @@ export class StatusWatcher {
 
   setKnownNodes(ids: NodeId[]): void {
     this.known = new Set(ids)
+    // 사라진 노드의 기억은 버린다. 같은 id가 다시 생기면(분리된 세션 복원, SPEC 5.4)
+    // 예전 개수를 물려받아 엉뚱하게 `background`로 보일 수 있다.
+    for (const id of this.pending.keys()) {
+      if (!this.known.has(id)) this.pending.delete(id)
+    }
   }
 
   /**
@@ -122,11 +136,14 @@ export class StatusWatcher {
     }
     const mapped = mapEvent(raw)
     if (mapped === null) return
+    if (mapped.backgroundTasks !== null) this.pending.set(id, mapped.backgroundTasks)
+    const pending = this.pending.get(id) ?? 0
     this.onChange({
       nodeId: id,
-      state: mapped.state,
+      state: resolveState(mapped, pending),
       at: new Date().toISOString(),
-      claudeSessionId: mapped.claudeSessionId
+      claudeSessionId: mapped.claudeSessionId,
+      backgroundTasks: mapped.backgroundTasks
     })
   }
 }

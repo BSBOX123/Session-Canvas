@@ -1,5 +1,9 @@
 node_modules
 dist
+# `npm run app:update`가 새 번들을 먼저 만드는 곳 (SPEC 4.3)
+dist-next
+# 되돌릴 때 쓸 예전 앱 번들 보관 (용량이 크다)
+dist-backup
 out
 coverage
 .DS_Store
