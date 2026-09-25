@@ -4,12 +4,14 @@
 import {
   DEFAULT_SETTINGS,
   NODE_ID_PATTERN,
-  type TerminalNodeData,
+  WORKSPACE_VERSION,
+  type CanvasNode,
   type Workspace,
   type WorkspaceSettings
 } from '../../shared/types'
 
-export const WORKSPACE_VERSION = 1
+/** v1은 노드가 전부 터미널이었고 필드가 평평했다 (SPEC 18.4). */
+const FIRST_VERSION = 1
 
 export type ParseResult =
   | { status: 'ok'; workspace: Workspace }
@@ -38,13 +40,26 @@ function str(value: unknown, fallback: string): string {
   return typeof value === 'string' ? value : fallback
 }
 
-/** 알 수 없는 필드는 버리고, 모자란 필드는 기본값으로 채운다. */
-function normalizeNode(raw: unknown): TerminalNodeData | null {
+/**
+ * 알 수 없는 필드는 버리고, 모자란 필드는 기본값으로 채운다.
+ *
+ * v1 파일은 노드가 전부 터미널이고 `cwd`·`command`·`tmuxSession` 등이
+ * 노드에 평평하게 놓여 있었다. v2는 그것들을 `terminal` 안으로 내린다
+ * (SPEC 18.4). 두 모양을 모두 읽는다.
+ */
+function normalizeNode(raw: unknown): CanvasNode | null {
   if (!isRecord(raw)) return null
   const id = str(raw.id, '')
   // id는 PTY·tmux·훅 파일 경로에 쓰인다. 패턴에 맞지 않으면 버린다 (SPEC 11).
   if (!NODE_ID_PATTERN.test(id)) return null
-  const cwd = str(raw.cwd, '')
+
+  // 모르는 종류는 버린다. 나중 버전에서 만든 노드일 수 있다.
+  const kind = str(raw.kind, 'terminal')
+  if (kind !== 'terminal') return null
+
+  // v2면 `terminal` 안에, v1이면 노드에 평평하게 있다.
+  const payload = isRecord(raw.terminal) ? raw.terminal : raw
+  const cwd = str(payload.cwd, '')
   if (cwd.length === 0) return null
 
   const position = isRecord(raw.position) ? raw.position : {}
@@ -53,17 +68,24 @@ function normalizeNode(raw: unknown): TerminalNodeData | null {
 
   return {
     id,
+    kind: 'terminal',
     title: str(raw.title, ''),
     description: str(raw.description, ''),
-    cwd,
-    command: typeof raw.command === 'string' ? raw.command : null,
-    tmuxSession: str(raw.tmuxSession, `sc-${id}`),
-    claudeSessionId: typeof raw.claudeSessionId === 'string' ? raw.claudeSessionId : null,
     position: { x: num(position.x, 0), y: num(position.y, 0) },
     size: { width: num(size.width, 640), height: num(size.height, 420) },
+    z: num(raw.z, 0),
+    parentId: typeof raw.parentId === 'string' ? raw.parentId : null,
     color: typeof raw.color === 'string' ? raw.color : null,
+    locked: raw.locked === true,
+    hidden: raw.hidden === true,
     createdAt: str(raw.createdAt, now),
-    updatedAt: str(raw.updatedAt, now)
+    updatedAt: str(raw.updatedAt, now),
+    terminal: {
+      cwd,
+      command: typeof payload.command === 'string' ? payload.command : null,
+      tmuxSession: str(payload.tmuxSession, `sc-${id}`),
+      claudeSessionId: typeof payload.claudeSessionId === 'string' ? payload.claudeSessionId : null
+    }
   }
 }
 
@@ -87,8 +109,9 @@ export function parseWorkspace(raw: string): ParseResult {
 
   const version = num(data.version, 0)
   if (version > WORKSPACE_VERSION) return { status: 'unsupported-version', version }
-  if (version < 1)
+  if (version < FIRST_VERSION) {
     return { status: 'corrupt', reason: `알 수 없는 version: ${String(data.version)}` }
+  }
 
   const viewport = isRecord(data.viewport) ? data.viewport : {}
   const settings = isRecord(data.settings) ? data.settings : {}
@@ -103,7 +126,7 @@ export function parseWorkspace(raw: string): ParseResult {
         y: num(viewport.y, 0),
         zoom: num(viewport.zoom, 1)
       },
-      nodes: nodes.map(normalizeNode).filter((node): node is TerminalNodeData => node !== null),
+      nodes: nodes.map(normalizeNode).filter((node): node is CanvasNode => node !== null),
       settings: {
         theme: normalizeTheme(settings.theme),
         webglMax: num(settings.webglMax, DEFAULT_SETTINGS.webglMax),

@@ -264,7 +264,9 @@ try {
     `패널=${withoutSessionId.panel}, 이어서 버튼=${withoutSessionId.resume}`
   )
 
-  await bridge(`updateNode(${JSON.stringify(nodeId)}, { claudeSessionId: 'sess-abc-123' })`)
+  // v2에서 터미널 고유 필드는 `terminal` 페이로드 안에 있다 (SPEC 18.2). `updateNode`는
+  // 얕은 병합이라 페이로드를 통째로 넘겨야 cwd·tmuxSession이 날아가지 않는다.
+  await bridge(`updateTerminal(${JSON.stringify(nodeId)}, { claudeSessionId: 'sess-abc-123' })`)
   await sleep(500)
   const withSessionId = await evaluate(`(() =>
     [...document.querySelectorAll('.detached-button')].some((b) =>

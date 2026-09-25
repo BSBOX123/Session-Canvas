@@ -3,8 +3,8 @@
 > 구현 진행 상황과 삽질 기록. SPEC 12.3에 따라 단계가 끝날 때마다 갱신한다.
 > 정본 명세는 `SPEC.md`.
 
-- 최종 갱신: 2026-09-20
-- 현재 단계: **단계 6 (다듬기·패키징) 완료. MVP 전 단계 종료.**
+- 최종 갱신: 2026-09-23
+- 현재 단계: **단계 7 (노드 종류 추상화) 완료. v2 시작.**
 
 ---
 
@@ -19,6 +19,7 @@
 | 4 상태 감지 | ✅ 완료 (2026-09-20) | 훅 스크립트, HookInstaller, StatusWatcher, 상태 배지, 알림, Dock 배지 |
 | 5 줌 단계·성능 | ✅ 완료 (2026-09-20) | semantic zoom, WebGL 개수 제한, 단축키 전체, 상태 색 미니맵 |
 | 6 다듬기·패키징 | ✅ 완료 (2026-09-20) | git 브랜치 표시, 색 라벨, 설정 화면, `.app` 빌드와 Finder 경로 확인 |
+| 7 노드 종류 추상화 | ✅ 완료 (2026-09-23) | `BaseNodeData` + `TerminalPayload` 분리, 저장 포맷 v2 + v1 마이그레이션, `NodeRuntime` 계약 |
 
 ---
 
@@ -58,6 +59,8 @@
 - 설정 화면에서 폰트·글자 크기·WebGL 개수를 바꾸면 **살아 있는 터미널에 바로** 반영된다.
 - 세션이 사라진 노드에 `claudeSessionId`가 있으면 [이전 대화 이어서](`claude --resume <id>`)가 나온다.
 - 알림 조건이 SPEC 8.6대로 다 찼다: 창이 비활성 **이거나** 그 노드가 화면 밖/개요 단계일 때.
+- **노드가 "종류"를 갖는다**(SPEC 18): 공통 필드는 `BaseNodeData`, 터미널 고유 필드(`cwd`·`command`·`tmuxSession`·`claudeSessionId`)는 `terminal` 페이로드 안. 종류는 아직 `'terminal'` 하나다. 겉보기는 그대로다.
+- `workspace.json`이 **version 2**다. v1 파일은 열 때 자동으로 올라간다(모양 분기라 버전이 틀려도 읽힌다). 되돌리기는 없다.
 - `npm run build:mac` → `dist/mac-arm64/Session Canvas.app` (서명 없음, SPEC 2.2).
 - 점검: `verify:renderer` / `verify:terminal`(9) / `verify:canvas`(12) / `verify:persistence`(13) / `verify:status`(7) / `verify:zoom`(15) / `verify:polish`(5).
 
@@ -186,7 +189,7 @@
 
 ## 5. 남은 일
 
-SPEC 12.1의 단계 0~6이 모두 끝났다. MVP 범위(SPEC 2.1)는 다 구현했다.
+SPEC 12.1의 단계 0~6(MVP, SPEC 2.1)과 SPEC 19장의 단계 7이 끝났다. 다음은 **단계 8 (작업 기록)**.
 
 ### 사용자가 직접 확인해야 하는 것
 - **R8 (재부팅 후 resume 흐름)** — 재부팅으로 tmux 서버가 사라진 뒤 앱을 켜면 노드가 "세션 없음"으로 뜨는지, [새로 시작]과 [이전 대화 이어서]가 동작하는지. [이전 대화 이어서]는 `claudeSessionId`가 있어야 보이고, 그 값은 상태 감지를 켜 둔 채 Claude Code를 쓴 적이 있어야 채워진다.
@@ -224,10 +227,51 @@ v2는 "그 에이전트가 **무엇을** 했나"를 푼다.
 - 단계 7(노드 종류 추상화) → 8(작업 기록) → 9(변경 뷰어·충돌 경고) → 10(역추적) → 11(캔버스 정리)
 - **DB 그래프·일반 코드 뷰어·MCP 노드·도형 그리기는 보류.** 8~10을 써 본 뒤 다시 판단
 
-단계 7의 완료 기준이 **"겉보기 변화 없음 + 기존 점검 전부 통과"** 인 점이 중요하다. 순수
-리팩터링이라 회귀만 없으면 성공이고, 이미 만들어 둔 점검 7종이 안전망이다.
+#### 단계 7 (완료, 2026-09-23)
+순수 리팩터링이라 완료 기준이 **"겉보기 변화 없음 + 기존 점검 전부 통과"** 였고, 만들어 둔
+점검 7종이 안전망 역할을 했다. 한 것:
+
+- `BaseNodeData`(공통) / `TerminalPayload`(터미널 고유) 분리, `CanvasNode` 판별 유니온과 `isTerminalNode` 가드
+- `WORKSPACE_VERSION = 2` — `serialize.ts`가 v1 평평한 모양과 v2 페이로드 모양을 **둘 다** 읽는다
+- 모르는 `kind`는 버린다(나중 버전 노드를 빈 껍데기로 되살려 저장하면 원본이 망가진다)
+- `nodes/nodeRuntime.ts` — `NodeRuntime` 계약. `TerminalRegistry`가 만족한다. 추상 레지스트리는 **만들지 않았다**(7-5)
+- 소비자 전부 갱신: `ipc.ts`, `workspace.ts`(store), `displayTitle.ts`, `TerminalNode.tsx`, `DetachedSession.tsx`, `NodeLocation.tsx`, `statusBridge.ts`, `TerminalRegistry.ts`
+
+확인한 것: `npm test` 144개 통과, `typecheck`·`lint` 무오류, **사용자의 실제 v1 `workspace.json`
+(노드 3개)이 손실 없이 v2로 열림**, `verify:*` 7종 통과.
+
+#### 단계 8 착수 지점
+`~/.claude/projects/<프로젝트>/<session_id>.jsonl`을 읽는 것부터다. 노드의
+`terminal.claudeSessionId`가 이미 그 파일을 가리킨다 — 상태 감지를 켜 두면 `SessionStart`가
+채워 준다. 없는 노드는 기록 없이 지금처럼 동작해야 한다(R14).
 
 ## 6. 삽질 기록
+
+### 7-4. 마이그레이션 점검이 실패했는데, 틀린 건 점검이었다
+
+실제 v1 `workspace.json`이 v2로 열리는지 확인하려고 임시 테스트를 짰더니 "파싱 실패"가 났다.
+마이그레이션 코드를 먼저 의심했지만, 원인은 내 테스트가 `parseWorkspace`의 반환을
+`result.ok`로 읽은 것이었다. 실제 계약은 `result.status === 'ok'`다. `ok`는 `undefined`라
+항상 실패로 갈렸다.
+
+**이 프로젝트에서 같은 실수를 여러 번 했다**(3-6 휠 방향, 2-3 드래그 거리, 6-3 엉뚱한 앱).
+점검이 실패하면 **앱보다 점검을 먼저 의심한다.** 특히 실패 이유를 출력하지 않는 단언은
+쓰지 않는다 — 처음에 `throw new Error('파싱 실패')`라고만 적어서 한 번 더 돌려야 했다.
+
+고친 뒤: 사용자의 실제 v1 파일(노드 3개)이 id·위치·크기·`createdAt`·`cwd`·`command`·
+`tmuxSession`·`claudeSessionId`까지 그대로 v2로 올라오는 것을 확인했다.
+
+### 7-5. 쓰지 않을 노드 종류를 미리 적지 않는다
+
+SPEC 18.2 초안은 `type NodeKind = 'terminal' | 'changes' | 'frame' | 'note'`였다. 그대로
+쓰면 **구현이 하나도 없는 종류 세 개가 타입에 생긴다.** 판별 유니온의 값은 곧
+"이 값을 처리했는가"를 컴파일러가 따지는 기준인데, 존재하지 않는 가지가 셋이면
+`switch`가 전부 불완전해지고 정작 진짜 누락은 묻힌다.
+
+`NodeKind = 'terminal'` 하나로 두고, 9·11단계에서 실제로 만들 때 더하기로 했다(SPEC 18.2 개정).
+같은 이유로 **추상 `NodeRuntimeRegistry`도 만들지 않았다.** 구현이 하나뿐인 추상화는 두 번째가
+들어올 때 거의 맞지 않는다. `nodes/nodeRuntime.ts`에 **계약(`NodeRuntime`)만** 두고
+`TerminalRegistry`가 그 모양을 만족하게 했다(SPEC 18.3 개정).
 
 ### 7-1. 큰 노드를 클릭하면 잘려 보이던 문제 — 그리고 그 뒤에 숨어 있던 것 ⭐⭐⭐
 사용자 신고: 노드를 크게 키워 놓고 클릭하면 화면이 그 노드에 맞춰지지 않고 **정해진 배율로 줌돼서 잘려 보인다.** 그래서 직접 줌을 줄이면 미리보기 단계로 내려가 **노드 사용이 풀린다.**

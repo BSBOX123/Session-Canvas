@@ -165,6 +165,7 @@ session-canvas/
 │     ├─ nodes/NewNodeDialog.tsx     # 7.2
 │     ├─ nodes/DetachedSession.tsx   # 5.4 "세션 없음"
 │     ├─ nodes/NodeLocation.tsx      # 7.1 경로 · 브랜치
+│     ├─ nodes/nodeRuntime.ts        # 18.3 노드 런타임 계약
 │     ├─ canvas/OrphanSessions.tsx   # 5.4 "분리된 세션"
 │     ├─ nodes/statusPresentation.ts # 8.1 기호·문구·색
 │     ├─ settings/SettingsPanel.tsx  # 8.4 동의 UI
@@ -761,8 +762,10 @@ interface NodeReviewState {
 지금은 **"노드 = 터미널"이 뼈대에 박혀 있다.** `nodeTypes`는 하나뿐이고, `TerminalNodeData`에 `tmuxSession`·`claudeSessionId`·`command`가 섞여 있으며, 저장 포맷도 그 타입 단일이다.
 
 ### 18.2 타입
+`NodeKind`는 **실제로 만든 종류만** 담는다. 쓰지 않는 이름을 미리 넣으면 `switch`가 전부 불완전해지고, 타입스크립트가 잡아 줄 수 있는 누락을 못 잡는다. 지금은 `'terminal'` 하나이고, 9·11단계에서 `'changes'`·`'frame'`을 **그때** 더한다.
+
 ```ts
-type NodeKind = 'terminal' | 'changes' | 'frame' | 'note'
+type NodeKind = 'terminal'   // 늘어날 자리: 'changes'(9단계) · 'frame'(11단계)
 
 interface BaseNodeData {
   id: NodeId; kind: NodeKind; title: string; description: string;
@@ -781,10 +784,26 @@ type CanvasNode =
 - `BaseNodeData`를 다루는 코드(이동·리사이즈·선택·저장)는 종류가 늘어도 그대로여야 한다
 
 ### 18.3 런타임 레지스트리
-노드는 무거운 자원을 쥔다(PTY, 파일 와처, transcript 리더). `TerminalRegistry`가 터미널에 하는 일(React 밖 보관, 언마운트해도 유지, 닫을 때만 정리 — 6.4)을 종류별로 일반화한다.
+노드는 무거운 자원을 쥔다(PTY, 파일 와처, transcript 리더). `TerminalRegistry`가 터미널에 하는 일(React 밖 보관, 언마운트해도 유지, 닫을 때만 정리 — 6.4)을 종류가 늘어도 같은 모양으로 한다.
+
+**추상 레지스트리를 미리 만들지 않는다.** 구현이 하나뿐인 추상화는 두 번째가 들어올 때 거의 맞지 않는다. 대신 `nodes/nodeRuntime.ts`에 **계약**만 둔다:
+
+```ts
+interface NodeRuntime<TEntry, TNode> {
+  acquire(node: TNode, container: HTMLElement): TEntry  // 없으면 생성, 있으면 재부착
+  get(id: NodeId): TEntry | undefined
+  dispose(id: NodeId, mode: string): void               // 노드를 닫을 때만
+  readonly survivesUnmount: boolean
+}
+```
+`TerminalRegistry`가 이 모양을 만족한다. 9단계의 `changes` 런타임은 이 계약을 따르고, 그때 공통 부분이 실제로 드러나면 묶는다.
 
 ### 18.4 저장 포맷 v2
 `Workspace.version`을 **2**로 올리고, v1 파일은 **모든 노드를 `kind: 'terminal'`로** 올려 읽는다(9.2). 되돌리기는 만들지 않는다.
+
+v1은 `cwd`·`command`·`tmuxSession`·`claudeSessionId`가 노드에 평평하게 놓여 있었다. v2는 `terminal` 안으로 내린다. `normalizeNode`는 **두 모양을 다 읽는다** — `terminal`이 객체면 거기서, 아니면 노드 자신에서 읽는다. 버전 분기가 아니라 모양 분기라서, 중간에 저장이 끊긴 파일도 읽힌다.
+
+모르는 `kind`는 **버린다**. 나중 버전이 만든 노드를 빈 껍데기로 살려 두면 그게 다시 저장되면서 원본이 망가진다.
 
 ---
 
@@ -847,3 +866,4 @@ Figma는 `V`·`F`·`T` 한 글자 단축키로 살지만 **우리 터미널은 �
 | v0.2.0 | 2026-09-22 | **v2 구상 확정.** 15~20장 신설: 캔버스 개발 툴 방향, 노드 종류 모델(`NodeKind`·판별 유니온·저장 v2), 캔버스 편집(모드 분리·프레임·레이어), 도구 노드 개요, 구현 단계 7~11, 위험 R9~R13. 변경 이력은 15장 → 21장으로 밀림 |
 | v0.2.1 | 2026-09-23 | **v2 방향 재정의.** 목적을 "에이전트가 한 일을 붙들어 두기"로 고정하고 일반 코드 뷰어·DB 그래프·MCP 노드를 목표에서 제외(§15.2, §19.2). Claude Code transcript에 필요한 데이터가 전부 있음을 실측해 §16 신설 — `Edit`의 `old_string`/`new_string`으로 diff 재구성 가능(R17 해소). 변경 기준은 "마지막 확인 지점 이후"로 결정하고 `unseen`(주의)과 `unreviewed`(검토)를 분리(§17). 단계 8~10을 작업 기록·변경 뷰어·역추적으로 교체, 캔버스 편집은 11단계로 |
 | v0.2.2 | 2026-09-23 | §7.3 개정: "노드로 줌인"을 배율 1.0 고정에서 **노드 전체가 들어오도록 맞추기**로 바꿨다(큰 노드가 잘리던 문제). 작업 중인 노드는 미리보기 단계에서도 입력을 받는다. 창이 가려지면 애니메이션 없이 즉시 이동한다(숨겨진 페이지는 rAF가 멈춰 이동이 영영 완료되지 않는다). React Flow `fitView` 대신 배율을 직접 계산한다 |
+| v0.2.3 | 2026-09-23 | **단계 7 완료.** §18.2 개정 — `NodeKind`에 쓰지 않는 종류를 미리 넣지 않는다(지금은 `'terminal'` 하나). §18.3을 "추상 레지스트리" 대신 `nodes/nodeRuntime.ts`의 **계약**으로 구체화. §18.4에 v1/v2 두 모양을 함께 읽는 규칙과 모르는 `kind`는 버린다는 규칙 추가. §4.2에 `nodes/nodeRuntime.ts` 추가 |

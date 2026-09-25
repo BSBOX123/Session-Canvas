@@ -2,7 +2,13 @@
 
 import type { Terminal } from '@xterm/xterm'
 import type { StatusChange } from '@shared/ipc'
-import type { NodeId, NodeStatus, TerminalNodeData, Workspace } from '@shared/types'
+import type {
+  NodeId,
+  NodeStatus,
+  TerminalNodeData,
+  TerminalPayload,
+  Workspace
+} from '@shared/types'
 import type { NewNodeInput } from './state/workspace'
 
 declare global {
@@ -17,6 +23,7 @@ declare global {
       readonly focusedNode: NodeId | null
       addNode(input: NewNodeInput): NodeId
       updateNode(id: NodeId, patch: Partial<TerminalNodeData>): void
+      updateTerminal(id: NodeId, patch: Partial<TerminalPayload>): void
       removeNode(id: NodeId): void
       markSeen(id: NodeId): void
       applyStatus(change: StatusChange): void

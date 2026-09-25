@@ -13,7 +13,7 @@ describe('workspace store', () => {
     const node = useWorkspace.getState().addNode({ ...base, position: { x: 0, y: 0 } })
     expect(node.id).toMatch(NODE_ID_PATTERN)
     expect(node.id).toHaveLength(10)
-    expect(node.tmuxSession).toBe(`sc-${node.id}`)
+    expect(node.terminal.tmuxSession).toBe(`sc-${node.id}`)
   })
 
   // SPEC 7.2: 기존 노드와 겹치면 오른쪽으로 밀어 배치한다.
@@ -113,7 +113,7 @@ describe('상태 전이 (SPEC 8.1)', () => {
   it('SessionStart의 session_id를 노드에 저장한다 (SPEC 5.4)', () => {
     const id = addNode()
     apply(id, 'unknown', 'sess-abc')
-    expect(useWorkspace.getState().nodes[0].claudeSessionId).toBe('sess-abc')
+    expect(useWorkspace.getState().nodes[0].terminal.claudeSessionId).toBe('sess-abc')
   })
 
   // 훅은 앱이 모르는 노드에도 파일을 쓸 수 있다 (닫은 노드 등).

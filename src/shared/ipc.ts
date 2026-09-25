@@ -1,5 +1,5 @@
 /** SPEC 10 IPC 계약. 채널 이름과 페이로드 타입은 여기서만 정의한다. */
-import type { NodeId, SessionState, TerminalNodeData, Workspace } from './types'
+import type { NodeId, SessionState, Workspace } from './types'
 
 export const CHANNELS = {
   ptyOpen: 'pty:open',
@@ -33,7 +33,9 @@ export const CHANNELS = {
  * main이 PTY를 여는 데 실제로 필요한 것만 받는다 (SPEC 11: IPC 입력 검증).
  * `cwd`가 null이면 main이 홈 디렉터리를 쓴다.
  */
-export type PtyOpenRequest = Pick<TerminalNodeData, 'id' | 'command'> & {
+export type PtyOpenRequest = {
+  id: NodeId
+  command: string | null
   cwd: string | null
 }
 

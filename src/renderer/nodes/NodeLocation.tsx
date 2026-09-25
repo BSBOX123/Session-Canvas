@@ -26,7 +26,7 @@ function NodeLocation({
   useEffect(() => {
     let cancelled = false
     const read = (): void => {
-      void window.api.git.branch(node.cwd).then((value) => {
+      void window.api.git.branch(node.terminal.cwd).then((value) => {
         if (!cancelled) setBranch(value)
       })
     }
@@ -42,13 +42,15 @@ function NodeLocation({
       cancelled = true
       window.clearInterval(timer)
     }
-  }, [node.cwd, active])
+  }, [node.terminal.cwd, active])
 
-  const home = node.cwd.startsWith('/Users/') ? node.cwd.split('/').slice(0, 3).join('/') : null
+  const home = node.terminal.cwd.startsWith('/Users/')
+    ? node.terminal.cwd.split('/').slice(0, 3).join('/')
+    : null
 
   return (
-    <div className="node-location" title={node.cwd}>
-      <span className="node-location-path">{shortenPath(node.cwd, home)}</span>
+    <div className="node-location" title={node.terminal.cwd}>
+      <span className="node-location-path">{shortenPath(node.terminal.cwd, home)}</span>
       {branch !== null && (
         <>
           <span className="node-location-sep"> · </span>

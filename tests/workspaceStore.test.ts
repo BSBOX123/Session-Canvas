@@ -9,17 +9,42 @@ import type { TerminalNodeData, Workspace } from '../src/shared/types'
 function node(id: string): TerminalNodeData {
   return {
     id,
+    kind: 'terminal',
     title: '제목',
     description: '설명\n두 줄',
-    cwd: '/Users/me/내 프로젝트',
-    command: 'claude',
-    tmuxSession: `sc-${id}`,
-    claudeSessionId: null,
     position: { x: 10, y: 20 },
     size: { width: 700, height: 500 },
+    z: 0,
+    parentId: null,
     color: null,
+    locked: false,
+    hidden: false,
     createdAt: '2026-09-20T00:00:00.000Z',
-    updatedAt: '2026-09-20T00:00:00.000Z'
+    updatedAt: '2026-09-20T00:00:00.000Z',
+    terminal: {
+      cwd: '/Users/me/내 프로젝트',
+      command: 'claude',
+      tmuxSession: `sc-${id}`,
+      claudeSessionId: null
+    }
+  }
+}
+
+/** v1 시절의 평평한 노드. 마이그레이션 확인에 쓴다 (SPEC 18.4). */
+function v1Node(id: string): Record<string, unknown> {
+  return {
+    id,
+    title: '옛 제목',
+    description: '옛 설명',
+    cwd: '/Users/me/오래된 프로젝트',
+    command: 'claude --resume abc',
+    tmuxSession: `sc-${id}`,
+    claudeSessionId: 'sess-old',
+    position: { x: 11, y: 22 },
+    size: { width: 800, height: 600 },
+    color: '#c96f6f',
+    createdAt: '2026-09-01T00:00:00.000Z',
+    updatedAt: '2026-09-02T00:00:00.000Z'
   }
 }
 
@@ -101,6 +126,55 @@ describe('serialize (SPEC 9.2)', () => {
     expect(parsed.status).toBe('ok')
     if (parsed.status !== 'ok') return
     expect(parsed.workspace.settings.theme).toEqual({ preset: 'latte', accent: '#3fb894' })
+  })
+
+  // SPEC 18.4 — v1은 노드가 전부 터미널이고 필드가 평평했다.
+  it('v1 파일을 손실 없이 v2로 올려 읽는다', () => {
+    const parsed = parseWorkspace(JSON.stringify({ version: 1, nodes: [v1Node('oldNode123')] }))
+    expect(parsed.status).toBe('ok')
+    if (parsed.status !== 'ok') return
+
+    expect(parsed.workspace.version).toBe(2)
+    const [migrated] = parsed.workspace.nodes
+    expect(migrated.kind).toBe('terminal')
+    // 공통 필드는 그대로
+    expect(migrated.title).toBe('옛 제목')
+    expect(migrated.description).toBe('옛 설명')
+    expect(migrated.position).toEqual({ x: 11, y: 22 })
+    expect(migrated.size).toEqual({ width: 800, height: 600 })
+    expect(migrated.color).toBe('#c96f6f')
+    expect(migrated.createdAt).toBe('2026-09-01T00:00:00.000Z')
+    // 터미널 고유 필드는 payload로 내려간다
+    expect(migrated.terminal).toEqual({
+      cwd: '/Users/me/오래된 프로젝트',
+      command: 'claude --resume abc',
+      tmuxSession: 'sc-oldNode123',
+      claudeSessionId: 'sess-old'
+    })
+    // v1에 없던 필드는 기본값
+    expect(migrated.z).toBe(0)
+    expect(migrated.parentId).toBeNull()
+    expect(migrated.locked).toBe(false)
+    expect(migrated.hidden).toBe(false)
+  })
+
+  it('v1 노드도 id 패턴 검사를 똑같이 받는다', () => {
+    const parsed = parseWorkspace(
+      JSON.stringify({ version: 1, nodes: [{ ...v1Node('x'), id: '../../etc/passwd' }] })
+    )
+    expect(parsed.status).toBe('ok')
+    if (parsed.status !== 'ok') return
+    expect(parsed.workspace.nodes).toEqual([])
+  })
+
+  // 나중 버전이 만든 종류를 이 버전이 다룰 수는 없다.
+  it('모르는 kind의 노드는 버린다', () => {
+    const parsed = parseWorkspace(
+      JSON.stringify({ version: 2, nodes: [{ ...node('good123456'), kind: 'db-graph' }] })
+    )
+    expect(parsed.status).toBe('ok')
+    if (parsed.status !== 'ok') return
+    expect(parsed.workspace.nodes).toEqual([])
   })
 
   it('상위 버전은 읽지 않는다', () => {

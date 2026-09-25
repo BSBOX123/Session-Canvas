@@ -43,7 +43,11 @@ export function startStatusBridge(): () => void {
     if (document.hasFocus() && isNodeVisible(change.nodeId)) return
     const node = store.getState().nodes.find((n) => n.id === change.nodeId)
     if (!node) return
-    window.api.app.notify(node.id, node.title || node.cwd.split('/').pop() || '터미널', after.state)
+    window.api.app.notify(
+      node.id,
+      node.title || node.terminal.cwd.split('/').pop() || '터미널',
+      after.state
+    )
   })
 
   let lastKnown = ''

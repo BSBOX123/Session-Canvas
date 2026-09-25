@@ -5,7 +5,7 @@
  * `import.meta.env.DEV` 가드 안에서만 import되므로 프로덕션 번들에는 없다.
  */
 import type { StatusChange } from '@shared/ipc'
-import type { NodeId, TerminalNodeData, Workspace } from '@shared/types'
+import type { NodeId, TerminalNodeData, TerminalPayload, Workspace } from '@shared/types'
 import { useWorkspace, type NewNodeInput } from './state/workspace'
 import { debugTerminals, focus, focusedNode, webglNodes } from './terminal/TerminalRegistry'
 
@@ -48,6 +48,8 @@ export function installDevBridge(): void {
     addNode: (input: NewNodeInput) => useWorkspace.getState().addNode(input).id,
     updateNode: (id: NodeId, patch: Partial<TerminalNodeData>) =>
       useWorkspace.getState().updateNode(id, patch),
+    updateTerminal: (id: NodeId, patch: Partial<TerminalPayload>) =>
+      useWorkspace.getState().updateTerminal(id, patch),
     removeNode: (id: NodeId) => useWorkspace.getState().removeNode(id),
     focus,
     // 휠 한 칸이 미리보기 구간(0.4~0.75)을 건너뛰어서, 점검이 배율을
