@@ -153,6 +153,8 @@ session-canvas/
 │  │  ├─ workspace/WorkspaceStore.ts
 │  │  ├─ workspace/serialize.ts      # 순수 함수, 단위 테스트 대상
 │  │  ├─ notify/Notifier.ts
+│  │  ├─ transcript/parse.ts          # 16장 순수 함수, 단위 테스트 대상
+│  │  ├─ transcript/workLog.ts        # 16장 누적·증분 (R16)
 │  │  ├─ git/GitService.ts           # 7.1 브랜치 표시
 │  │  ├─ resources.ts                # resources/ 실제 파일 경로 해석
 │  │  └─ ipc.ts
@@ -713,31 +715,94 @@ MVP가 푼 것은 "**어느** 에이전트가 날 기다리는가"였다. v2가 
 
 ## 16. 데이터 출처 — Claude Code transcript
 
-### 16.1 이미 디스크에 있다 (실측)
-`~/.claude/projects/<프로젝트>/<session_id>.jsonl`에 필요한 것이 **전부 들어 있다.** 훅이 주는 `transcript_path`가 이 파일을 가리킨다(8.2).
+### 16.1 대부분 디스크에 있다 (실측)
+`~/.claude/projects/<프로젝트>/<session_id>.jsonl`. 훅이 주는 `transcript_path`가 이 파일을 가리킨다(8.2).
 
-| 알고 싶은 것 | 들어 있는 곳 |
-|---|---|
-| 무엇을 시켰나 | `last-prompt`, `type: "user"` 항목 |
-| 무엇을 했나 | assistant 메시지의 `tool_use` 블록 (`name`, `input`) |
-| **어떤 파일이 바뀌었나** | `file-history-delta.trackingPath` |
-| **무엇이 어떻게 바뀌었나** | `Edit` 도구의 `old_string`/`new_string`, `Write`의 `content` |
-| 어떤 파일을 읽었나 | `Read` 도구의 `file_path` |
-| 언제·어디서 | `timestamp`, `cwd`, `gitBranch` |
-| 세션이 무슨 작업인지 | **`ai-title`** (Claude Code가 자동으로 붙인 제목) |
-| 대화의 순서·갈래 | `uuid`, `parentUuid` |
+**2026-09-25 / 2.1.280 재측정.** 실제 파일 10개(54~7227줄)를 읽어 아래 표를 고쳤다.
 
-실측 예(LectureMate 세션 1개): 4368줄, `file-history-delta` 17건, `Edit` 15회, `Write` 37회.
+| 알고 싶은 것 | 들어 있는 곳 | 신뢰도 |
+|---|---|---|
+| 무엇을 시켰나 | `last-prompt`(`lastPrompt`·`leafUuid`·`sessionId`), `type: "user"` | 높음 |
+| 무엇을 했나 | assistant 메시지의 `tool_use` 블록 (`name`, `input`) | 높음 |
+| 어떤 파일을 읽었나 | `Read` 도구의 `file_path` | 높음 |
+| 언제·어디서 | `timestamp`, `cwd`, `gitBranch` | 높음 |
+| 세션이 무슨 작업인지 | `ai-title` → `{ aiTitle, sessionId }` | ⚠️ **낡는다** (아래) |
+| 대화의 순서·갈래 | `uuid`, `parentUuid` | 높음 |
+| 세션이 어디로 이어졌나 | `continued-in` → `{ continuedInSessionId }` | 높음 |
+| **어떤 파일이 바뀌었나** | `file-history-delta.trackingPath`, `file-history-snapshot.snapshot.trackedFileBackups`(경로 → 백업정보 맵) | ⚠️ **불완전** |
+| **무엇이 어떻게 바뀌었나** | `Edit`의 `old_string`/`new_string`, `Write`의 `content` | ⚠️ **불완전** |
 
-**따라서 "작업 기록"은 수집 문제가 아니라 읽기·색인·표시 문제다.** 훅으로 따로 모을 필요가 없고, **Session Canvas 밖에서 돌린 과거 세션도 읽을 수 있다.**
+#### ⚠️ 셸로 고친 파일은 transcript에 남지 않는다 (R20)
+**`file-history`는 `Edit`·`Write` 도구를 거친 변경만 기록한다.** `Bash`로 `cat > ... <<EOF`나 `python`을 써서 고친 파일은 **흔적이 없다.**
 
-### 16.2 diff는 transcript만으로 재구성한다
-우선순위대로 쓴다.
+측정(세션별 `Edit+Write` / `Bash` / `file-history-delta` / 추적된 파일 수):
 
-1. **`Edit` 도구의 `old_string`/`new_string`** — 그 자체가 diff다. 가장 정확하고 의도까지 남아 있다
-2. **`Write` 도구의 `content`** — 전체 교체
-3. `file-history` 백업 (`~/.claude/backups/`) — 보조. `backupFileName`이 `null`인 경우가 관측됐다(R15)
-4. git — 최후 수단
+| 줄 | Edit+Write | Bash | delta | 추적 파일 | 세션 |
+|---|---|---|---|---|---|
+| 6055 | **0** | 776 | **0** | **0** | Session Canvas (단계 7 작업 — 실제로는 파일 30개를 고쳤다) |
+| 2020 | **0** | 269 | **0** | **0** | cie |
+| 5477 | 90 | 556 | 48 | 71 | lecture-mate |
+| 7227 | 16 | 611 | 15 | 15 | cie |
+
+`Edit`·`Write`가 0이면 `file-history`도 정확히 0이다. **드문 경우가 아니라 기본값일 수 있다.**
+
+다만 정보가 사라지는 것은 아니다. `Bash`의 `tool_use.input.command`에 **명령 전문이 heredoc 내용까지 그대로** 남는다(1779자 예시 확인). 즉 **"무엇을 했나"는 읽을 수 있고, "어떤 파일이 바뀌었나"만 믿을 수 없다.**
+
+#### ⚠️ `ai-title`은 세션 내내 바뀌지 않는다
+이번 세션(6055줄, 단계 0~8에 걸쳐 있다)의 `ai-title`은 **288번 기록됐지만 전부 같은 문자열**이었다:
+
+```
+"Session Canvas stage 0 scaffold"
+```
+
+세션 **시작 시점의 주제**에 고정된다. 긴 세션일수록 낡는다.
+
+#### 그럼에도 제목은 `ai-title`로 채운다 (실측으로 뒤집은 결정)
+대안은 "가장 최근 프롬프트"였다. 실제 프롬프트를 보고 **버렸다** — 최근 프롬프트는 내용이 없는 경우가 대부분이었다.
+
+| 세션 | `ai-title` | 가장 최근 프롬프트 | 25자 이상으로 올려도 |
+|---|---|---|---|
+| lecture-mate | LectureMate AI 풀스택 프로젝트 구현 | `머지해` | `너가 생각하는 최고의 순서대로 해` |
+| cie | HANDOVER.md 파일 확인 | `커밋해` | `업데이트 실패 원인 확인해줘` |
+| 맥북 진단 | 맥북 성능 저하 진단 | `캡처는 어디에 저장되는거야?` | 같음 |
+| smartfarm | Notion workspace | `좋아. 커밋하고 리소스 생성해.` | `서버를 git 액션 사용해서…` |
+| Session Canvas | stage 0 scaffold ← 낡음 | `a로 가고 다음 진행하자` | `1. push해 2. 앱은 너가…` |
+
+**길이 기준을 올려도 나아지지 않는다** — 더 오래된, 역시 무의미한 프롬프트를 고를 뿐이다. 7개 중 6개에서 `ai-title`이 더 나은 주제 label이었다.
+
+그래서 이렇게 나눈다.
+
+- **제목** = `ai-title` (`titleSuggestionOf`). 없으면 지금처럼 폴더명
+- **"지금" 줄** = 가장 최근 프롬프트의 첫 줄 (`currentActivityOf`). 헤더 셋째 줄에 둔다. `ai-title`이 낡는 약점을 이 줄이 메운다
+- **사용자가 직접 쓴 제목은 덮지 않는다.** 빈 제목일 때만 자동으로 채운다
+
+#### `last-prompt`는 턴마다 다시 기록된다
+같은 프롬프트가 연달아 온다(실측: 한 프롬프트가 288번). 그대로 쌓으면 타임라인이 같은 줄로 가득 찬다. **연속 중복은 하나로 본다.**
+
+#### `attachment`은 대부분 잡음이다
+전체의 3분의 1이 `attachment`다(6019줄 중 2036건). `attachment.type`이 `hook_success`(959)·`total_tokens_reminder`(851)·`deferred_tools_record`(146) 등이고 작업 기록과 무관하다. **건너뛴다.** 단 `edited_text_file`(`filename`·`snippet`)은 파일 내용 스냅숏이라 보조로 쓸 수 있다.
+
+**결론: "작업 기록"은 수집 문제가 아니라 읽기·색인·표시 문제다.** 훅으로 따로 모을 필요가 없고 Session Canvas 밖에서 돌린 과거 세션도 읽힌다. **단, 바뀐 파일은 git에서 얻는다(16.2).**
+
+### 16.2 변경은 git에서, 의도는 transcript에서
+16.1의 측정 결과로 **1순위를 바꿨다.** transcript만으로는 셸로 고친 파일을 못 본다.
+
+역할을 이렇게 나눈다.
+
+| | 출처 | 왜 |
+|---|---|---|
+| **결과** (어떤 파일이 바뀌었나·어떻게) | **git** | 어떤 방법으로 고쳤든 남는다. 노드는 이미 `terminal.cwd`를 갖고 `GitService`(단계 6)가 있다 |
+| **의도** (무엇을 시켰나·무엇을 했나·왜) | **transcript** | git에는 없다. 프롬프트·도구 호출·`ai-title`이 여기에만 있다 |
+
+바뀐 파일의 **보조** 신호는 우선순위대로:
+
+1. `file-history-delta.trackingPath` — `Edit`·`Write`를 거친 변경
+2. `file-history-snapshot.snapshot.trackedFileBackups`의 키 — 같은 성격, 빈도는 더 높다
+3. `Edit`의 `old_string`/`new_string`, `Write`의 `content` — 있으면 **그 자체가 diff이고 의도까지 남아 있다.** git diff보다 읽기 좋다
+4. `attachment.edited_text_file`의 `filename`·`snippet`
+5. `file-history` 백업 (`~/.claude/backups/`) — `backupFileName`이 `null`인 경우가 관측됐다(R15)
+
+즉 **git으로 "무엇이 바뀌었는지" 빠짐없이 잡고, transcript로 "누가 왜 바꿨는지"를 붙인다.** 3번이 있으면 그것을 우선 보여 주고, 없으면 git diff로 대신한다.
 
 ### 16.3 ⚠️ 비공식 포맷이다
 이 JSONL은 **문서화되지 않은 Claude Code 내부 포맷**이다. 버전이 바뀌면 깨질 수 있다.
@@ -834,7 +899,7 @@ v1은 `cwd`·`command`·`tmuxSession`·`claudeSessionId`가 노드에 평평하�
 | 단계 | 내용 | 완료 기준 |
 |---|---|---|
 | **7** 노드 종류 추상화 | 18장 전체 | **겉보기 변화 없음** — 기존 점검(`verify:*`) 전부 통과 · v1 `workspace.json`이 손실 없이 열림 · 터미널 페이로드 분리 |
-| **8** 작업 기록 | 16장 읽기·색인. 노드별 타임라인(시킨 것 → 한 것 → 바뀐 파일), 변경 파일 목록·배지, `ai-title`로 제목 자동 채우기 | 터미널 스크롤백을 읽지 않고 "이 에이전트가 무엇을 했는지" 파악 가능 · transcript를 못 읽어도 앱이 정상 동작 |
+| **8** 작업 기록 | 16장 읽기·색인. 노드별 타임라인(시킨 것 → 한 것 → 바뀐 파일), 변경 파일 목록·배지, **`ai-title`로 제목 자동 채우기 + "지금" 줄에 최근 프롬프트**(§16.1) | 터미널 스크롤백을 읽지 않고 "이 에이전트가 무엇을 했는지" 파악 가능 · transcript를 못 읽어도 앱이 정상 동작 |
 | **9** 변경 뷰어 | 17장. `changes` 노드 — 마지막 확인 이후 diff, [확인함], 에이전트 간 **파일 충돌 경고** | 여러 노드의 변경을 나란히 비교 가능 · 두 노드가 같은 파일을 건드리면 경고 · 확인 지점이 재시작 후에도 유지 |
 | **10** 역추적 | 파일 → 그 파일을 바꾼 세션·프롬프트로 점프 | "이 코드 왜 이렇게 됐지?"를 클릭 한 번으로 |
 | **11** 캔버스 정리 | 프레임(그룹), 노드 목록 패널, 다중 선택·정렬. **모드 분리**(아래) | 노드 20개를 프레임으로 관리 · 노드 모드에서 `Esc`·`Ctrl+*`이 그대로 전달됨 |
@@ -862,6 +927,7 @@ Figma는 `V`·`F`·`T` 한 글자 단축키로 살지만 **우리 터미널은 �
 | R15 | `backup.backupFileName`이 `null`인 경우가 관측됐다 | 어떤 조건에서 백업이 남는지. 안 남아도 16.2의 1·2번으로 충분한지 | 단계 9 |
 | R16 | 세션당 4천 줄을 매번 읽는 비용 | 증분 읽기·색인. 노드 10개면 4만 줄 | 단계 8 |
 | ~~R17~~ | ~~Edit/Write의 `tool_input` 구조~~ | ✅ **확인 완료**: `Edit`=`file_path`·`old_string`·`new_string`·`replace_all`, `Write`=`file_path`·`content`, `Read`=`file_path` | — |
+| R20 | **셸로 고친 파일은 transcript에 안 남는다** (16.1 실측). git을 1순위로 올렸으나, 커밋되지 않은 변경·`cwd` 밖의 변경·여러 노드가 같은 저장소를 건드릴 때를 어떻게 가릴지 | 단계 8에서 git 경로를 만들고 노드 2개로 같은 저장소를 동시에 건드려 확인 | 단계 8 |
 | R18 | 프레임 중첩과 `measured`·리사이즈 로직의 상호작용 | 프레임 안 노드를 리사이즈. **리사이즈는 이미 한 번 크게 깨졌다**(HANDOVER 6-4) | 단계 11 |
 | R19 | 레이어 z-order를 React Flow가 어디까지 지원하는지 | 그룹 안 z-order 직접 확인 | 단계 11 |
 
@@ -890,3 +956,5 @@ Figma는 `V`·`F`·`T` 한 글자 단축키로 살지만 **우리 터미널은 �
 | v0.2.2 | 2026-09-23 | §7.3 개정: "노드로 줌인"을 배율 1.0 고정에서 **노드 전체가 들어오도록 맞추기**로 바꿨다(큰 노드가 잘리던 문제). 작업 중인 노드는 미리보기 단계에서도 입력을 받는다. 창이 가려지면 애니메이션 없이 즉시 이동한다(숨겨진 페이지는 rAF가 멈춰 이동이 영영 완료되지 않는다). React Flow `fitView` 대신 배율을 직접 계산한다 |
 | v0.2.3 | 2026-09-23 | **단계 7 완료.** §18.2 개정 — `NodeKind`에 쓰지 않는 종류를 미리 넣지 않는다(지금은 `'terminal'` 하나). §18.3을 "추상 레지스트리" 대신 `nodes/nodeRuntime.ts`의 **계약**으로 구체화. §18.4에 v1/v2 두 모양을 함께 읽는 규칙과 모르는 `kind`는 버린다는 규칙 추가. §4.2에 `nodes/nodeRuntime.ts` 추가 |
 | v0.2.4 | 2026-09-25 | **`background` 상태 추가.** 백그라운드 작업을 기다리는 동안 노드가 주황(`입력 대기`)으로 보여 "사람이 할 일이 있다"고 거짓말하던 문제. §8.1에 보라 테두리 + 느린 숨쉬기로 정의하고 unseen·알림·`J` 순회에서 제외. §8.2에 `Stop`의 `background_tasks` 실측 결과와 `resolveState` 규칙 추가 — `StatusWatcher`가 노드별 개수를 기억하고, 유휴 `Notification`을 `background`로 덮는다(`PermissionRequest`는 통과). §4.2에 `scripts/update-app.mjs` 추가 |
+| v0.2.5 | 2026-09-25 | **§16 전면 재측정 (2.1.280).** 실제 transcript 10개를 읽어 §16.1 표를 고쳤다. `file-history`는 `Edit`·`Write`를 거친 변경만 기록하므로 **셸로 고친 파일은 흔적이 없다** — 측정으로 확인(세션 2개는 `Edit`/`Write` 0회, 추적 파일 0개인데 실제로는 파일 30개를 고쳤다). 그래서 §16.2의 1순위를 transcript에서 **git**으로 바꿨다: 결과는 git, 의도는 transcript. §16.1에 `file-history-snapshot`·`continued-in`·`attachment` 실측 구조 추가(모두 초안에 없었다). R20 신설 |
+| v0.2.6 | 2026-09-28 | §16.1에 제목 관련 실측 두 건 추가. (1) `ai-title`은 **세션 시작 시점에 고정된다** — 6055줄 세션에서 288번 모두 같은 문자열("stage 0 scaffold")이었다. (2) 그래서 "가장 최근 프롬프트"로 바꾸려 했으나 실제 프롬프트가 `커밋해`·`머지해`처럼 내용이 없는 경우가 대부분이어서 **되돌렸다**. 길이 기준을 올려도 나아지지 않았고, 7개 중 6개에서 `ai-title`이 더 나은 주제였다. 결론: 제목은 `ai-title`, 낡는 약점은 헤더의 **"지금" 줄**(최근 프롬프트)이 메운다. 사용자가 쓴 제목은 덮지 않는다. (3) `last-prompt`가 턴마다 다시 기록되므로 연속 중복은 하나로 본다. `main/transcript/parse.ts`·`workLog.ts` 추가 |
