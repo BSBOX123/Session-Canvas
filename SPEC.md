@@ -155,6 +155,7 @@ session-canvas/
 │  │  ├─ notify/Notifier.ts
 │  │  ├─ transcript/parse.ts          # 16장 순수 함수, 단위 테스트 대상
 │  │  ├─ transcript/workLog.ts        # 16장 누적·증분 (R16)
+│  │  ├─ transcript/TranscriptStore.ts # 16장 파일 찾기·증분 읽기
 │  │  ├─ git/GitService.ts           # 7.1 브랜치 표시
 │  │  ├─ resources.ts                # resources/ 실제 파일 경로 해석
 │  │  └─ ipc.ts
@@ -779,6 +780,21 @@ MVP가 푼 것은 "**어느** 에이전트가 날 기다리는가"였다. v2가 
 #### `last-prompt`는 턴마다 다시 기록된다
 같은 프롬프트가 연달아 온다(실측: 한 프롬프트가 288번). 그대로 쌓으면 타임라인이 같은 줄로 가득 찬다. **연속 중복은 하나로 본다.**
 
+#### ⚠️ 파일 경로를 계산하지 않는다
+경로는 `~/.claude/projects/<슬러그>/<session_id>.jsonl`이다. 슬러그는 `cwd`의 **비영숫자를 `-`로 바꾼 것**으로 보인다 — 실측 폴더 35개 중 **32개가 일치**했다.
+
+**그런데 그 규칙으로 찾으면 안 된다.** 폴더는 **세션이 시작된 위치**로 정해지고, 레코드의 `cwd`는 그 뒤 바뀔 수 있다. 어긋난 3건을 관측했다:
+
+| 폴더 | 그 안 세션의 `cwd` |
+|---|---|
+| `…-Desktop-CIE-Cl` | `/Users/…/dev/project/cie` |
+| `…-dev-project-cie` | `/Users/…/Desktop/CIE_Cl` |
+| `…-T-tmpu0dfsfuh` | `/Users/…/dev/project/lecture-mate` |
+
+앞 두 개는 **서로 뒤바뀌어** 있다(프로젝트를 옮긴 세션). 그래서 **session id로 폴더 전체를 훑어 찾는다** — 폴더 35개 훑기가 0.7ms다.
+
+**같은 id가 두 폴더에 있는 경우도 1건** 있었다: 옮기기 전 27줄 껍데기(26KB)와 옮긴 뒤 7227줄 본체(12MB). **가장 최근에 수정된 것**을 쓴다.
+
 #### `attachment`은 대부분 잡음이다
 전체의 3분의 1이 `attachment`다(6019줄 중 2036건). `attachment.type`이 `hook_success`(959)·`total_tokens_reminder`(851)·`deferred_tools_record`(146) 등이고 작업 기록과 무관하다. **건너뛴다.** 단 `edited_text_file`(`filename`·`snippet`)은 파일 내용 스냅숏이라 보조로 쓸 수 있다.
 
@@ -958,3 +974,4 @@ Figma는 `V`·`F`·`T` 한 글자 단축키로 살지만 **우리 터미널은 �
 | v0.2.4 | 2026-09-25 | **`background` 상태 추가.** 백그라운드 작업을 기다리는 동안 노드가 주황(`입력 대기`)으로 보여 "사람이 할 일이 있다"고 거짓말하던 문제. §8.1에 보라 테두리 + 느린 숨쉬기로 정의하고 unseen·알림·`J` 순회에서 제외. §8.2에 `Stop`의 `background_tasks` 실측 결과와 `resolveState` 규칙 추가 — `StatusWatcher`가 노드별 개수를 기억하고, 유휴 `Notification`을 `background`로 덮는다(`PermissionRequest`는 통과). §4.2에 `scripts/update-app.mjs` 추가 |
 | v0.2.5 | 2026-09-25 | **§16 전면 재측정 (2.1.280).** 실제 transcript 10개를 읽어 §16.1 표를 고쳤다. `file-history`는 `Edit`·`Write`를 거친 변경만 기록하므로 **셸로 고친 파일은 흔적이 없다** — 측정으로 확인(세션 2개는 `Edit`/`Write` 0회, 추적 파일 0개인데 실제로는 파일 30개를 고쳤다). 그래서 §16.2의 1순위를 transcript에서 **git**으로 바꿨다: 결과는 git, 의도는 transcript. §16.1에 `file-history-snapshot`·`continued-in`·`attachment` 실측 구조 추가(모두 초안에 없었다). R20 신설 |
 | v0.2.6 | 2026-09-28 | §16.1에 제목 관련 실측 두 건 추가. (1) `ai-title`은 **세션 시작 시점에 고정된다** — 6055줄 세션에서 288번 모두 같은 문자열("stage 0 scaffold")이었다. (2) 그래서 "가장 최근 프롬프트"로 바꾸려 했으나 실제 프롬프트가 `커밋해`·`머지해`처럼 내용이 없는 경우가 대부분이어서 **되돌렸다**. 길이 기준을 올려도 나아지지 않았고, 7개 중 6개에서 `ai-title`이 더 나은 주제였다. 결론: 제목은 `ai-title`, 낡는 약점은 헤더의 **"지금" 줄**(최근 프롬프트)이 메운다. 사용자가 쓴 제목은 덮지 않는다. (3) `last-prompt`가 턴마다 다시 기록되므로 연속 중복은 하나로 본다. `main/transcript/parse.ts`·`workLog.ts` 추가 |
+| v0.2.7 | 2026-09-28 | §16.1에 **transcript 파일 찾는 방법** 추가. 슬러그 규칙(`[^A-Za-z0-9]` → `-`)은 35개 중 32개만 맞고, 폴더는 **세션 시작 위치**로 정해지므로 `cwd`로 계산하면 조용히 틀린다(어긋난 3건 실측, 두 건은 서로 뒤바뀜). **session id로 폴더 전체를 훑고**(0.7ms), 같은 id가 여럿이면 **가장 최근 수정본**을 쓴다(실측 1건). `main/transcript/TranscriptStore.ts` 추가 — 증분 읽기(바이트 오프셋, 마지막 줄바꿈까지만 소비), 파일이 줄면 재시작, `continued-in` 사슬 추적(최대 8단계, 고리 방지). 실측: 노드 5개 재읽기 합계 **5.2ms** |
