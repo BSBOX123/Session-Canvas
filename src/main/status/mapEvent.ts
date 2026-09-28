@@ -1,5 +1,9 @@
 /**
- * 훅 이벤트 → 노드 상태 (SPEC 8.2). 순수 함수 — 단위 테스트 대상.
+ * 훅 이벤트 → 노드 상태 (SPEC 8.2, 21.1). 순수 함수 — 단위 테스트 대상.
+ *
+ * **Claude Code와 Codex가 같은 표를 쓴다.** 공통 필드가 같음을 실측했다
+ * (SPEC 21.1). 에이전트별 차이는 `Interrupt`(Codex만)와 `StopFailure`(Claude
+ * Code만), 그리고 `background_tasks`(Claude Code만)뿐이다.
  *
  * 표는 공식 문서 + 실제 stdin 덤프로 확인했다 (R1, 2026-09-20 / 2.1.278).
  * 모르는 이벤트는 무시한다 — 앱이 죽으면 안 된다.
@@ -10,7 +14,7 @@ import type { SessionState } from '../../shared/types'
 export interface MappedEvent {
   state: SessionState
   /** `SessionStart`에서만 채워진다 (resume용, SPEC 5.4). */
-  claudeSessionId: string | null
+  agentSessionId: string | null
   /**
    * 백그라운드 작업 개수 (SPEC 8.2). **모르면 `null`.**
    *
@@ -76,7 +80,7 @@ export function mapEvent(raw: string): MappedEvent | null {
       // 세션이 새로 시작하면 이전 백그라운드 작업은 남아 있지 않다.
       return {
         state: 'unknown',
-        claudeSessionId: typeof id === 'string' ? id : null,
+        agentSessionId: typeof id === 'string' ? id : null,
         backgroundTasks: 0,
         event
       }
@@ -84,14 +88,14 @@ export function mapEvent(raw: string): MappedEvent | null {
     case 'UserPromptSubmit':
     case 'PreToolUse':
     case 'PostToolUse':
-      return { state: 'working', claudeSessionId: null, backgroundTasks: null, event }
+      return { state: 'working', agentSessionId: null, backgroundTasks: null, event }
     case 'PermissionRequest':
-      return { state: 'waiting', claudeSessionId: null, backgroundTasks: null, event }
+      return { state: 'waiting', agentSessionId: null, backgroundTasks: null, event }
     case 'Notification': {
       const state = mapNotification(payload)
       return state === null
         ? null
-        : { state, claudeSessionId: null, backgroundTasks: backgroundTaskCount(payload), event }
+        : { state, agentSessionId: null, backgroundTasks: backgroundTaskCount(payload), event }
     }
     case 'Stop':
     case 'StopFailure': {
@@ -100,13 +104,17 @@ export function mapEvent(raw: string): MappedEvent | null {
       const pending = backgroundTaskCount(payload)
       return {
         state: pending !== null && pending > 0 ? 'background' : 'done',
-        claudeSessionId: null,
+        agentSessionId: null,
         backgroundTasks: pending,
         event
       }
     }
+    case 'Interrupt':
+      // Codex에만 있다 (SPEC 21.1). 사용자가 직접 중단한 것이므로 이미 알고 있다 —
+      // `done`으로 두면 확인하라고 깜빡여서 거짓 신호가 된다.
+      return { state: 'unknown', agentSessionId: null, backgroundTasks: null, event }
     case 'SessionEnd':
-      return { state: 'unknown', claudeSessionId: null, backgroundTasks: 0, event }
+      return { state: 'unknown', agentSessionId: null, backgroundTasks: 0, event }
     default:
       return null
   }

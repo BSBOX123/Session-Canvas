@@ -380,6 +380,39 @@ body {
   margin: 6px 0 0;
 }
 
+/* 에이전트 빠른 선택 (SPEC 21.4). 명령 칸은 그대로 자유 입력이다. */
+.dialog-choices {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.dialog-choice {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--fg-dim);
+  cursor: pointer;
+  font: inherit;
+  padding: 4px 10px;
+}
+
+.dialog-choice:hover {
+  border-color: var(--accent);
+}
+
+.dialog-choice.selected {
+  border-color: var(--accent);
+  color: var(--fg);
+}
+
+/* 에이전트를 못 알아봤을 때를 미리 알려 주는 줄. 오류가 아니므로 옅게. */
+.dialog-hint {
+  color: var(--fg-dim);
+  font-size: 12px;
+  margin: 6px 0 0;
+}
+
 .dialog-actions {
   display: flex;
   justify-content: flex-end;

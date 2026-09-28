@@ -12,10 +12,10 @@ const event = (name: string, extra: Record<string, unknown> = {}): string =>
 
 // SPEC 8.2 — 표의 모든 이벤트. 실제 stdin 덤프(2.1.278)에서 확인한 필드를 쓴다.
 describe('mapEvent', () => {
-  it('SessionStart → unknown, session_id를 claudeSessionId로 넘긴다', () => {
+  it('SessionStart → unknown, session_id를 agentSessionId로 넘긴다', () => {
     expect(mapEvent(event('SessionStart', { source: 'startup' }))).toEqual({
       state: 'unknown',
-      claudeSessionId: 'sess-123',
+      agentSessionId: 'sess-123',
       backgroundTasks: 0,
       event: 'SessionStart'
     })
@@ -24,7 +24,7 @@ describe('mapEvent', () => {
   it.each(['UserPromptSubmit', 'PreToolUse', 'PostToolUse'])('%s → working', (name) => {
     expect(mapEvent(event(name))).toEqual({
       state: 'working',
-      claudeSessionId: null,
+      agentSessionId: null,
       backgroundTasks: null,
       event: name
     })
@@ -33,7 +33,7 @@ describe('mapEvent', () => {
   it('PermissionRequest → waiting', () => {
     expect(mapEvent(event('PermissionRequest', { tool_name: 'Bash' }))).toEqual({
       state: 'waiting',
-      claudeSessionId: null,
+      agentSessionId: null,
       backgroundTasks: null,
       event: 'PermissionRequest'
     })
@@ -42,7 +42,7 @@ describe('mapEvent', () => {
   it.each(['Stop', 'StopFailure'])('%s → done (백그라운드 작업이 없을 때)', (name) => {
     expect(mapEvent(event(name, { background_tasks: [] }))).toEqual({
       state: 'done',
-      claudeSessionId: null,
+      agentSessionId: null,
       backgroundTasks: 0,
       event: name
     })
@@ -54,7 +54,7 @@ describe('mapEvent', () => {
     (name) => {
       expect(mapEvent(event(name, { background_tasks: [{ id: 'bk1' }] }))).toEqual({
         state: 'background',
-        claudeSessionId: null,
+        agentSessionId: null,
         backgroundTasks: 1,
         event: name
       })
@@ -65,16 +65,16 @@ describe('mapEvent', () => {
     // 예전 Claude Code이거나 필드가 빠진 경우. "0개"라고 단정하지 않는다.
     expect(mapEvent(event('Stop'))).toEqual({
       state: 'done',
-      claudeSessionId: null,
+      agentSessionId: null,
       backgroundTasks: null,
       event: 'Stop'
     })
   })
 
-  it('SessionEnd → unknown (claudeSessionId는 건드리지 않는다)', () => {
+  it('SessionEnd → unknown (agentSessionId는 건드리지 않는다)', () => {
     expect(mapEvent(event('SessionEnd', { reason: 'other' }))).toEqual({
       state: 'unknown',
-      claudeSessionId: null,
+      agentSessionId: null,
       backgroundTasks: 0,
       event: 'SessionEnd'
     })
@@ -123,7 +123,7 @@ describe('mapEvent', () => {
     it('SessionStart에 session_id가 없어도 상태는 준다', () => {
       expect(mapEvent('{"hook_event_name":"SessionStart"}')).toEqual({
         state: 'unknown',
-        claudeSessionId: null,
+        agentSessionId: null,
         backgroundTasks: 0,
         event: 'SessionStart'
       })

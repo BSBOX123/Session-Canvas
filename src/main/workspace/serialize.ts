@@ -2,15 +2,17 @@
  * workspace.json 직렬화·검증 (SPEC 9.2). 순수 함수 — 단위 테스트 대상.
  */
 import {
+  agentFromCommand,
   DEFAULT_SETTINGS,
   NODE_ID_PATTERN,
   WORKSPACE_VERSION,
+  type AgentKind,
   type CanvasNode,
   type Workspace,
   type WorkspaceSettings
 } from '../../shared/types'
 
-/** v1은 노드가 전부 터미널이었고 필드가 평평했다 (SPEC 18.4). */
+/** v1은 노드가 전부 터미널이었고 필드가 평평했다 (SPEC 18.4). v2는 `agent`가 없다 (SPEC 21). */
 const FIRST_VERSION = 1
 
 export type ParseResult =
@@ -26,6 +28,10 @@ export function emptyWorkspace(): Workspace {
     nodes: [],
     settings: { ...DEFAULT_SETTINGS }
   }
+}
+
+function isAgentKind(value: unknown): value is AgentKind {
+  return value === 'claude' || value === 'codex'
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -62,6 +68,7 @@ function normalizeNode(raw: unknown): CanvasNode | null {
   const cwd = str(payload.cwd, '')
   if (cwd.length === 0) return null
 
+  const command = typeof payload.command === 'string' ? payload.command : null
   const position = isRecord(raw.position) ? raw.position : {}
   const size = isRecord(raw.size) ? raw.size : {}
   const now = new Date().toISOString()
@@ -82,9 +89,17 @@ function normalizeNode(raw: unknown): CanvasNode | null {
     updatedAt: str(raw.updatedAt, now),
     terminal: {
       cwd,
-      command: typeof payload.command === 'string' ? payload.command : null,
+      command,
       tmuxSession: str(payload.tmuxSession, `sc-${id}`),
-      claudeSessionId: typeof payload.claudeSessionId === 'string' ? payload.claudeSessionId : null
+      // v3에서 생긴 필드. v1·v2 파일은 명령에서 추측한다 (SPEC 21.4).
+      agent: isAgentKind(payload.agent) ? payload.agent : agentFromCommand(command),
+      // v2까지 이름이 `claudeSessionId`였다. 두 이름을 다 읽는다 (SPEC 21.4).
+      agentSessionId:
+        typeof payload.agentSessionId === 'string'
+          ? payload.agentSessionId
+          : typeof payload.claudeSessionId === 'string'
+            ? payload.claudeSessionId
+            : null
     }
   }
 }

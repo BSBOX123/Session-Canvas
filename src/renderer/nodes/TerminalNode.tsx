@@ -1,6 +1,6 @@
 import { memo, useCallback } from 'react'
 import { NodeResizer, useReactFlow, type NodeProps, type Node } from '@xyflow/react'
-import type { TerminalNodeData } from '@shared/types'
+import { resumeCommand, type TerminalNodeData } from '@shared/types'
 import { MIN_NODE_SIZE, useWorkspace } from '../state/workspace'
 import { dispose, fitAndResize, focus } from '../terminal/TerminalRegistry'
 import XtermView from '../terminal/XtermView'
@@ -42,14 +42,15 @@ function TerminalNode({ data, selected }: NodeProps<TerminalFlowNode>): React.JS
   }, [node.id, node.position.x, node.position.y, node.size, setCenter])
 
   /**
-   * 이전 Claude Code 대화를 이어서 새 세션을 띄운다 (SPEC 5.4).
-   * `command`를 `claude --resume <id>`로 바꾸면 다음 `pty.open`이 그걸 쓴다.
+   * 이전 대화를 이어서 새 세션을 띄운다 (SPEC 5.4 / 21.4).
+   * `command`를 이어서 실행 명령으로 바꾸면 다음 `pty.open`이 그걸 쓴다.
+   * 명령 모양은 에이전트마다 다르다 — Codex는 `codex resume <id>`다.
    */
   const resumeSession = useCallback(() => {
-    const sessionId = node.terminal.claudeSessionId
-    if (sessionId === null) return
+    const { agentSessionId, agent } = node.terminal
+    if (agentSessionId === null || agent === null) return
     updateNode(node.id, {
-      terminal: { ...node.terminal, command: `claude --resume ${sessionId}` }
+      terminal: { ...node.terminal, command: resumeCommand(agent, agentSessionId) }
     })
     markSessionStarted(node.id)
   }, [node.terminal, node.id, markSessionStarted, updateNode])

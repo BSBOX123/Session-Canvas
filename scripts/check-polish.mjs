@@ -5,7 +5,7 @@
  *   - 헤더에 `경로 · 브랜치`가 뜨는지 (SPEC 7.1)
  *   - 색 라벨이 헤더 좌측 띠로 붙는지 (SPEC 7.1)
  *   - 설정의 글자 크기·폰트가 살아 있는 터미널에 반영되는지 (SPEC 9.1)
- *   - `claudeSessionId`가 있을 때만 [이전 대화 이어서]가 보이는지 (SPEC 5.4)
+ *   - `agentSessionId`가 있을 때만 [이전 대화 이어서]가 보이는지 (SPEC 5.4)
  *
  * 패키징 확인(SPEC 4.4)은 여기서 못 한다 — Finder에서 직접 실행해야 한다.
  *
@@ -162,7 +162,7 @@ try {
       nodeId: ${JSON.stringify(nodeId)},
       state: ${JSON.stringify(state)},
       at: new Date().toISOString(),
-      claudeSessionId: null,
+      agentSessionId: null,
       backgroundTasks: null
     }), 1)`)
     await sleep(350)
@@ -273,23 +273,42 @@ try {
     )
   }))()`)
   reporter.check(
-    'claudeSessionId가 없으면 [새로 시작]만 보인다 (SPEC 5.4)',
+    'agentSessionId가 없으면 [새로 시작]만 보인다 (SPEC 5.4)',
     withoutSessionId.panel && !withoutSessionId.resume,
     `패널=${withoutSessionId.panel}, 이어서 버튼=${withoutSessionId.resume}`
   )
 
   // v2에서 터미널 고유 필드는 `terminal` 페이로드 안에 있다 (SPEC 18.2). `updateNode`는
   // 얕은 병합이라 페이로드를 통째로 넘겨야 cwd·tmuxSession이 날아가지 않는다.
-  await bridge(`updateTerminal(${JSON.stringify(nodeId)}, { claudeSessionId: 'sess-abc-123' })`)
+  //
+  // `agent`도 함께 준다 — 세션 id만 있고 어떤 에이전트인지 모르면 무엇으로 이어야
+  // 할지 알 수 없으므로 버튼이 뜨지 않는다 (SPEC 21.4). 이 노드는 `command: null`로
+  // 만들어서 agent가 추측되지 않는다.
+  await bridge(
+    `updateTerminal(${JSON.stringify(nodeId)}, { agentSessionId: 'sess-abc-123', agent: 'claude' })`
+  )
   await sleep(500)
   const withSessionId = await evaluate(`(() =>
     [...document.querySelectorAll('.detached-button')].some((b) =>
       b.textContent.includes('이전 대화')
     ))()`)
   reporter.check(
-    'claudeSessionId가 있으면 [이전 대화 이어서]가 보인다 (SPEC 5.4)',
+    'agentSessionId가 있으면 [이전 대화 이어서]가 보인다 (SPEC 5.4)',
     withSessionId === true,
     `이어서 버튼=${withSessionId}`
+  )
+
+  // SPEC 21.4 — 세션 id가 있어도 에이전트를 모르면 이어서 실행할 수 없다.
+  await bridge(`updateTerminal(${JSON.stringify(nodeId)}, { agent: null })`)
+  await sleep(400)
+  const withoutAgent = await evaluate(`(() =>
+    [...document.querySelectorAll('.detached-button')].some((b) =>
+      b.textContent.includes('이전 대화')
+    ))()`)
+  reporter.check(
+    '에이전트를 모르면 [이전 대화 이어서]가 숨는다 (SPEC 21.4)',
+    withoutAgent === false,
+    `이어서 버튼=${withoutAgent}`
   )
 
   client.close()

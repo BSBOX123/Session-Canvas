@@ -82,7 +82,7 @@ describe('StatusWatcher', () => {
     await writeStatus('node123', { hook_event_name: 'SessionStart', session_id: 'sess-1' })
 
     await waitFor(() => seen.length > 0, 'SessionStart')
-    expect(seen.every((c) => c.claudeSessionId === 'sess-1')).toBe(true)
+    expect(seen.every((c) => c.agentSessionId === 'sess-1')).toBe(true)
   })
 
   it('모르는 이벤트와 깨진 JSON은 알리지 않는다', async () => {
