@@ -12,7 +12,7 @@
 
 ## 0. 이 문서를 읽는 Claude Code에게 — 작업 규칙
 
-1. **이 문서가 정본이다.** 구현 중 문서와 다르게 해야 할 이유가 생기면, 코드만 바꾸지 말고 해당 절을 수정하고 21장 변경 이력에 한 줄 남긴다.
+1. **이 문서가 정본이다.** 구현 중 문서와 다르게 해야 할 이유가 생기면, 코드만 바꾸지 말고 해당 절을 수정하고 22장 변경 이력에 한 줄 남긴다.
 2. **12장의 단계 순서대로 진행한다.** 각 단계의 "완료 기준"을 모두 만족하기 전에 다음 단계로 넘어가지 않는다. 단계가 끝나면 커밋하고 `HANDOVER.md`를 갱신한다.
 3. **13장 "확인 필요" 항목은 추측으로 구현하지 않는다.** 공식 문서나 실제 실행으로 확인한 뒤 구현하고, 확인 결과를 문서에 반영한다. 특히 Claude Code hooks 스키마(R1)는 반드시 최신 공식 문서(`https://docs.claude.com/en/docs/claude-code/hooks`)로 확인한다.
 4. **사용자 전역 설정을 함부로 건드리지 않는다.** `~/.claude/settings.json`, `~/.tmux.conf`, `~/.zshrc` 등 앱 밖의 파일은 수정하지 않는다. 유일한 예외는 8.4의 훅 설치이며, 앱 UI에서 사용자가 명시적으로 동의했을 때만 백업 후 수행한다. 개발 중 테스트도 임시 HOME 또는 fixture 파일로 한다.
@@ -61,11 +61,12 @@ macOS에서 여러 Claude Code 세션을 동시에 돌릴 때 iTerm 창을 여�
 ### 2.2 명시적 비범위 (MVP 제외)
 - 에이전트 간 출력 전달(터미널 → 터미널 파이프), 노드 간 연결선
 - 브라우저 미리보기, 파일 에디터, git worktree 관리
-- 원격(SSH) 세션, Windows/Linux 지원
+- 원격(SSH) 세션, Linux 지원
 - 다중 창, 다중 워크스페이스(워크스페이스는 1개)
 - 클라우드 동기화, 공유
 - 코드 서명·공증(notarization) — 로컬 빌드만
-- Claude Code 외 CLI(Codex 등)의 상태 감지 — **실행은 되지만 상태 배지는 표시하지 않는다**
+
+> **개정 (2026-09-29)**: ~~Claude Code 외 CLI(Codex 등)의 상태 감지~~ 는 비범위에서 **빼낸다.** Codex 훅을 실측해 보니 Claude Code와 거의 같은 모양이어서 D6을 그대로 쓸 수 있다 → **21장**. Windows도 비범위에서 빼내되 **WSL2 전제**로 한다(21.5).
 
 ### 2.3 참고한 기존 프로젝트
 같은 발상의 오픈소스가 있으므로 막히면 구현을 참고한다(코드 복사가 아니라 설계 참고).
@@ -86,8 +87,8 @@ macOS에서 여러 Claude Code 세션을 동시에 돌릴 때 iTerm 창을 여�
 | D3 | 터미널 렌더링 | **@xterm/xterm** + addons (6장) | 사실상 표준 |
 | D4 | 캔버스 | **@xyflow/react (React Flow)** | 노드 드래그·리사이즈·줌·미니맵 기본 제공 |
 | D5 | 세션 백엔드 | **tmux, 전용 소켓 `-L session-canvas`** | 앱이 죽어도 세션 유지. 사용자 기존 tmux와 격리 |
-| D6 | 상태 감지 | **Claude Code hooks → 상태 파일 → fs watch** | 출력 파싱보다 정확. 앱이 꺼져 있어도 상태가 파일에 남음 |
-| D7 | 훅 설치 위치 | **`~/.claude/settings.json`(사용자 전역)에 병합, 환경변수로 가드** | 노드 안에서 `claude`를 어떻게 실행하든 동작. 앱 밖 세션에서는 훅이 즉시 종료 |
+| D6 | 상태 감지 | **에이전트 hooks → 상태 파일 → fs watch** | 출력 파싱보다 정확. 앱이 꺼져 있어도 상태가 파일에 남음. **Claude Code와 Codex가 같은 방식**(21.1 실측) |
+| D7 | 훅 설치 위치 | 에이전트별 **사용자 전역** 설정에 병합, 환경변수로 가드. Claude Code는 `~/.claude/settings.json`, Codex는 `~/.codex/hooks.json` | 노드 안에서 어떻게 실행하든 동작. 앱 밖 세션에서는 훅이 즉시 종료. ⚠️ **Codex는 사용자가 `/hooks`로 직접 승인해야 실행된다**(21.2) |
 | D8 | 상태 관리 | **zustand** (renderer) | 가볍고 React 밖(터미널 레지스트리)에서도 접근 쉬움 |
 | D9 | 영속 저장 | **JSON 파일** (`app.getPath('userData')/workspace.json`) | DB 불필요 규모 |
 | D10 | 테스트 | **vitest** (단위), 수동 인수 체크리스트 (단계별) | |
@@ -949,7 +950,88 @@ Figma는 `V`·`F`·`T` 한 글자 단축키로 살지만 **우리 터미널은 �
 
 ---
 
-## 21. 변경 이력
+## 21. 에이전트 추상화 — Claude Code 외 CLI 지원
+
+> **방향 전환 (2026-09-29).** "범용으로 쓸 수 있게" 한다. 1순위는 **Codex 지원**, 2순위는 **Windows(WSL2)**. v2의 단계 8~11은 그 뒤로 미룬다.
+
+### 21.1 Codex 훅 실측 (2026-09-29, codex-cli 0.157.1)
+**문서가 아니라 실제 stdin 덤프다.** tmux 안에서 대화형으로 띄워 확인했다.
+
+공통 필드가 **Claude Code와 같다**: `session_id` · `transcript_path` · `cwd` · `hook_event_name`. 그래서 `mapEvent`를 거의 그대로 쓴다.
+
+| 이벤트 | Codex 고유 필드 | Claude Code와 비교 |
+|---|---|---|
+| `SessionStart` | `source` | 동일 |
+| `UserPromptSubmit` | `prompt`, `turn_id` | 동일 (+`turn_id`) |
+| `PreToolUse` | `tool_name`, `tool_input`, `tool_use_id`, `turn_id` | 동일 |
+| `PostToolUse` | + `tool_response` | 동일 |
+| `PermissionRequest` | `tool_name`, `tool_input`, `turn_id` | 동일 |
+| `Stop` | `stop_hook_active`, `last_assistant_message`, `turn_id` | 동일 |
+| `SessionEnd` | `reason` | 동일 |
+| `Interrupt` | — | **Claude Code에 없음** (Claude Code의 `StopFailure`가 Codex에 없다) |
+| `PreCompact`·`PostCompact`·`SubagentStart`·`SubagentStop` | — | 쓰지 않는다. 모르는 이벤트는 버린다 |
+
+모든 이벤트에 `model`·`permission_mode`가 붙는다(`SessionEnd`는 제외).
+
+**차이 셋 — 이것만 따로 다룬다.**
+
+1. **`background_tasks`가 없다.** 보라색 `background` 상태(8.1)는 **Codex 노드에 적용되지 않는다.** `mapEvent`는 배열이 아니면 "모른다"로 보고 `done`으로 두므로 그대로 안전하다
+2. **`SessionStart`가 첫 턴에 발생한다.** Claude Code는 실행 즉시인데, Codex는 TUI가 떠도 안 오고 **사용자가 첫 프롬프트를 보낼 때** 온다(실측: 프롬프트 전 0건 → 후 5건). 그래서 codex 노드는 첫 프롬프트까지 `대기`로 남고, resume용 세션 id도 그때 채워진다
+3. **`Interrupt`를 매핑에 더한다.**
+
+### 21.2 ⚠️ Codex 훅은 사용자가 승인해야 실행된다
+> "Before a non-managed hook can run, Codex requires you to review and trust the exact hook definition."
+
+- 신뢰가 **훅 정의의 해시**에 묶인다. **훅 명령을 한 글자라도 바꾸면 사용자가 다시 승인해야 한다**
+- 승인은 Codex TUI의 **`/hooks`** 로 한다. 자동화할 수 없다 — 의도된 보안 설계다
+- `--dangerously-bypass-hook-trust`는 일회성 우회다. **앱이 이 플래그를 쓰지 않는다**(사용자 몰래 훅을 돌리는 셈이다). 실측할 때만 썼다
+
+**따라서 설정 화면(9.1)이 두 단계를 안내해야 한다**: ① 앱이 `~/.codex/hooks.json`에 병합 → ② 사용자가 Codex에서 `/hooks` 실행해 승인. ②를 건너뛰면 상태 배지가 영영 안 뜬다.
+
+### 21.3 실측 중 걸린 함정 (재현 방법)
+- **`-c` 설정 주입이 대화형에서 조용히 무시된다.** 공유 백그라운드 데몬이 돌고 있으면 그렇다. 화면 구석 `⚠ 1 warning`으로만 알려 준다. **`--no-daemon`**(embedded mode)을 붙여야 먹는다. 이걸 모르면 "Codex는 대화형에서 훅이 안 뜬다"고 잘못 결론 낸다
+- 새 폴더에서 첫 실행하면 **"Trust this folder?" TUI**가 먼저 뜬다(Claude Code와 같은 패턴, HANDOVER 4-4). 결정은 `~/.codex/config.toml`의 `[projects."<경로>"] trust_level`에 **저장된다**
+- `codex doctor`에 **훅 항목이 없다.** 훅이 왜 안 뜨는지 진단해 주지 않는다
+- [openai/codex#17532](https://github.com/openai/codex/issues/17532)의 "대화형에서 훅이 안 뜬다"는 **repo-local `.codex/config.toml` 한정**이다. 사용자 전역은 정상 동작을 확인했다
+
+### 21.4 에이전트별 차이 표 (구현 기준)
+| | Claude Code | Codex |
+|---|---|---|
+| 실행 명령 | `claude` | `codex` |
+| 이어서 | `claude --resume <uuid>` | **`codex resume <uuid>`** |
+| 훅 설정 | `~/.claude/settings.json` (JSON) | `~/.codex/hooks.json` (JSON) |
+| 훅 승인 | 불필요 | **필요 (`/hooks`)** |
+| transcript | `~/.claude/projects/<슬러그>/<id>.jsonl` | `~/.codex/sessions/<YYYY>/<MM>/<DD>/rollout-<시각>-<id>.jsonl` |
+| `SessionStart` 시점 | 실행 즉시 | **첫 턴** |
+| 백그라운드 작업 상태 | ✅ | ❌ (`background_tasks` 없음) |
+
+두 transcript 모두 **JSONL**이고 경로는 훅 payload의 `transcript_path`가 알려 준다 — **경로를 계산하지 않는다**(16.1에서 배운 것과 같다).
+
+### 21.5 Windows (WSL2 전제)
+`tmux`가 Windows에 없다. D5(세션 백엔드)의 근거가 "앱이 죽어도 세션 유지"이므로 tmux를 버릴 수 없다. 검토한 셋 중 **WSL2 안에서 tmux를 돌리는 방식**을 택한다.
+
+| 방식 | 세션 생존 | 판단 |
+|---|---|---|
+| **WSL2 안에서 tmux** | ✅ | **채택.** 아키텍처를 거의 그대로 유지 |
+| 네이티브 + 자체 영속 헬퍼(ConPTY) | 직접 구현 | 기각 — tmux를 다시 만드는 일 |
+| Windows는 영속성 포기 | ❌ | 기각 — 앱의 존재 이유를 버린다 |
+
+손봐야 할 곳(조사 완료): `tmux`를 참조하는 파일 20개, `env/loginEnv.ts`(Windows에 `$SHELL -l -i` 대응물이 없다 — 건너뛴다), 훅 스크립트(`#!/bin/sh`, WSL 안이면 그대로), `~/.claude`·`~/.codex` 경로(WSL 파일시스템), Dock 배지 → 작업 표시줄 오버레이, `electron-builder`에 `win`(nsis) 타깃. node-pty는 ConPTY로 Windows를 지원한다.
+
+**미결**: 경로 변환(`C:\` ↔ `/mnt/c/`) 범위, WSL 미설치 시 안내 화면, 서명 없는 설치 파일의 SmartScreen 경고.
+
+### 21.6 구현 단계
+| 단계 | 내용 | 완료 기준 |
+|---|---|---|
+| **A** 에이전트 종류 | `TerminalPayload`에 `agent`, 생성 대화상자에서 선택, `Interrupt` 매핑, resume 명령 분기 | codex 노드가 상태 배지까지 정상 · claude 노드는 **겉보기 변화 없음** |
+| **B** Codex 훅 설치 | `~/.codex/hooks.json` 병합(덧붙이기·idempotent·백업) + 설정 화면의 `/hooks` 승인 안내 | 승인 후 codex 노드에 `작업 중`·`입력 대기`·`완료`가 뜬다 |
+| **C** Windows (WSL2) | 21.5 | Windows에서 노드를 띄우고 앱을 죽여도 세션이 살아 있다 |
+
+단계 8~11(작업 기록·변경 뷰어·역추적·캔버스 정리)은 **C 다음으로 미룬다.** 단계 8의 읽기 계층은 이미 만들어 두었고(`main/transcript/`), Codex transcript도 JSONL이므로 그때 같은 방식으로 붙인다.
+
+---
+
+## 22. 변경 이력
 | 버전 | 일자 | 내용 |
 |---|---|---|
 | v0.1 | 2026-09-20 | 초안. Electron + React Flow + xterm.js + node-pty + tmux 구조 확정, hooks 기반 상태 감지 설계, 단계 0~6 정의 |
@@ -975,3 +1057,4 @@ Figma는 `V`·`F`·`T` 한 글자 단축키로 살지만 **우리 터미널은 �
 | v0.2.5 | 2026-09-25 | **§16 전면 재측정 (2.1.280).** 실제 transcript 10개를 읽어 §16.1 표를 고쳤다. `file-history`는 `Edit`·`Write`를 거친 변경만 기록하므로 **셸로 고친 파일은 흔적이 없다** — 측정으로 확인(세션 2개는 `Edit`/`Write` 0회, 추적 파일 0개인데 실제로는 파일 30개를 고쳤다). 그래서 §16.2의 1순위를 transcript에서 **git**으로 바꿨다: 결과는 git, 의도는 transcript. §16.1에 `file-history-snapshot`·`continued-in`·`attachment` 실측 구조 추가(모두 초안에 없었다). R20 신설 |
 | v0.2.6 | 2026-09-28 | §16.1에 제목 관련 실측 두 건 추가. (1) `ai-title`은 **세션 시작 시점에 고정된다** — 6055줄 세션에서 288번 모두 같은 문자열("stage 0 scaffold")이었다. (2) 그래서 "가장 최근 프롬프트"로 바꾸려 했으나 실제 프롬프트가 `커밋해`·`머지해`처럼 내용이 없는 경우가 대부분이어서 **되돌렸다**. 길이 기준을 올려도 나아지지 않았고, 7개 중 6개에서 `ai-title`이 더 나은 주제였다. 결론: 제목은 `ai-title`, 낡는 약점은 헤더의 **"지금" 줄**(최근 프롬프트)이 메운다. 사용자가 쓴 제목은 덮지 않는다. (3) `last-prompt`가 턴마다 다시 기록되므로 연속 중복은 하나로 본다. `main/transcript/parse.ts`·`workLog.ts` 추가 |
 | v0.2.7 | 2026-09-28 | §16.1에 **transcript 파일 찾는 방법** 추가. 슬러그 규칙(`[^A-Za-z0-9]` → `-`)은 35개 중 32개만 맞고, 폴더는 **세션 시작 위치**로 정해지므로 `cwd`로 계산하면 조용히 틀린다(어긋난 3건 실측, 두 건은 서로 뒤바뀜). **session id로 폴더 전체를 훑고**(0.7ms), 같은 id가 여럿이면 **가장 최근 수정본**을 쓴다(실측 1건). `main/transcript/TranscriptStore.ts` 추가 — 증분 읽기(바이트 오프셋, 마지막 줄바꿈까지만 소비), 파일이 줄면 재시작, `continued-in` 사슬 추적(최대 8단계, 고리 방지). 실측: 노드 5개 재읽기 합계 **5.2ms** |
+| v0.3.0 | 2026-09-29 | **방향 전환 — 범용화.** 21장 신설(에이전트 추상화). Codex 훅을 tmux 안 대화형으로 **실측**해 Claude Code와 공통 필드가 같음을 확인 → D6을 "에이전트 hooks"로 일반화하고 §2.2에서 "Codex 상태 감지" 비범위를 제거. 차이 셋을 기록: `background_tasks` 없음, `SessionStart`가 **첫 턴**에 발생, `Interrupt` 추가. ⚠️ Codex는 **사용자가 `/hooks`로 훅을 승인**해야 하고 신뢰가 **정의 해시**에 묶인다 → D7 개정, 설정 화면이 2단계를 안내해야 함. 실측 함정 기록(§21.3): 대화형에서 `-c`가 조용히 무시되며 `--no-daemon` 필요. Windows는 **WSL2 전제**로 비범위에서 제외(§21.5). 구현 단계 A·B·C 신설, v2 단계 8~11은 그 뒤로 미룸 |
