@@ -10,6 +10,8 @@ import { GitService } from './git/GitService'
 import { TMUX_SOCKET, type TmuxContext } from './tmux/buildArgs'
 import { WorkspaceStore } from './workspace/WorkspaceStore'
 import { HookInstaller } from './hooks/HookInstaller'
+import { CLAUDE_HOOK_EVENTS, CODEX_HOOK_EVENTS } from './hooks/mergeSettings'
+import type { AgentKind } from '../shared/types'
 import { StatusWatcher } from './status/StatusWatcher'
 import { Notifier } from './notify/Notifier'
 import { PtyManager } from './pty/PtyManager'
@@ -90,11 +92,26 @@ app.whenReady().then(async () => {
   // SPEC 8.3~8.6. HOME을 통째로 바꿀 수 있게 해 둔다 — 점검이 진짜
   // `~/.claude`를 건드리지 않게 하기 위한 유일한 통로다 (SPEC 14.2).
   const home = process.env.SESSION_CANVAS_HOME ?? homedir()
-  const hookInstaller = new HookInstaller({
-    source: resourcePath('hooks/session-canvas-hook.sh'),
-    target: join(home, '.session-canvas', 'bin', 'session-canvas-hook.sh'),
-    settings: join(home, '.claude', 'settings.json')
-  })
+  // 훅 스크립트는 하나를 공유한다. 노드 id는 tmux가 환경변수로 주므로
+  // claude든 codex든 같은 스크립트가 동작한다 (SPEC 8.3 / 21.4).
+  const hookScript = join(home, '.session-canvas', 'bin', 'session-canvas-hook.sh')
+  const hookInstallers: Record<AgentKind, HookInstaller> = {
+    claude: new HookInstaller({
+      source: resourcePath('hooks/session-canvas-hook.sh'),
+      target: hookScript,
+      settings: join(home, '.claude', 'settings.json'),
+      events: CLAUDE_HOOK_EVENTS,
+      needsApproval: false
+    }),
+    codex: new HookInstaller({
+      source: resourcePath('hooks/session-canvas-hook.sh'),
+      target: hookScript,
+      settings: join(home, '.codex', 'hooks.json'),
+      events: CODEX_HOOK_EVENTS,
+      // SPEC 21.2 — 파일을 고쳐도 사용자가 `/hooks`로 승인해야 실행된다.
+      needsApproval: true
+    })
+  }
   const notifier = new Notifier(
     () => mainWindow,
     (nodeId) => forward(CHANNELS.appNotificationClick, nodeId)
@@ -111,7 +128,7 @@ app.whenReady().then(async () => {
     git: new GitService(loginEnv),
     store: workspaceStore,
     status: statusWatcher,
-    hooks: hookInstaller,
+    hooks: hookInstallers,
     notifier,
     getWindow: () => mainWindow
   })

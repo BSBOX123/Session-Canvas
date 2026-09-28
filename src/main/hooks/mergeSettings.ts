@@ -1,6 +1,10 @@
 /**
- * `~/.claude/settings.json`에 우리 훅을 **추가 병합**한다 (SPEC 8.4).
+ * 에이전트의 사용자 전역 설정에 우리 훅을 **추가 병합**한다 (SPEC 8.4 / 21.4).
  * 순수 함수 — 단위 테스트 대상.
+ *
+ * **Claude Code와 Codex가 같은 JSON 구조를 쓴다**(실측, SPEC 21.4):
+ * `{ hooks: { <이벤트>: [ { hooks: [ { type, command, timeout } ] } ] } }`.
+ * 그래서 이 파일을 둘이 공유하고, 다른 것은 **파일 경로와 이벤트 목록**뿐이다.
  *
  * 원칙:
  *  - 사용자의 기존 hooks와 다른 설정은 **한 글자도 바꾸지 않는다**
@@ -9,8 +13,8 @@
  *  - 파싱 실패 시 아무것도 쓰지 않는다 (호출부에서 처리)
  */
 
-/** SPEC 8.2의 매핑이 필요로 하는 이벤트들. */
-export const HOOK_EVENTS = [
+/** Claude Code가 주는 이벤트 (SPEC 8.2 실측). */
+export const CLAUDE_HOOK_EVENTS = [
   'SessionStart',
   'UserPromptSubmit',
   'PreToolUse',
@@ -21,6 +25,25 @@ export const HOOK_EVENTS = [
   'StopFailure',
   'SessionEnd'
 ] as const
+
+/**
+ * Codex가 주는 이벤트 (SPEC 21.1 실측).
+ *
+ * `Notification`과 `StopFailure`가 **없고** `Interrupt`가 있다. 없는 이벤트를
+ * 등록하면 설정에 죽은 항목이 남으므로 목록을 따로 둔다.
+ */
+export const CODEX_HOOK_EVENTS = [
+  'SessionStart',
+  'UserPromptSubmit',
+  'PreToolUse',
+  'PostToolUse',
+  'PermissionRequest',
+  'Stop',
+  'Interrupt',
+  'SessionEnd'
+] as const
+
+export type HookEvents = readonly string[]
 
 /** 훅이 멈춰도 Claude Code가 오래 기다리지 않게 한다. 기본값은 600초다. */
 export const HOOK_TIMEOUT_SECONDS = 5
@@ -65,18 +88,22 @@ function hasCommand(settings: Settings, event: string, command: string): boolean
  * 설치 상태. 일부 이벤트에만 걸려 있으면 `outdated` — 이벤트 목록이 늘어난
  * 새 버전으로 올라온 경우다.
  */
-export function installState(settings: Settings, command: string): InstallState {
-  const present = HOOK_EVENTS.filter((event) => hasCommand(settings, event, command))
+export function installState(
+  settings: Settings,
+  command: string,
+  events: HookEvents
+): InstallState {
+  const present = events.filter((event) => hasCommand(settings, event, command))
   if (present.length === 0) return 'not-installed'
-  return present.length === HOOK_EVENTS.length ? 'installed' : 'outdated'
+  return present.length === events.length ? 'installed' : 'outdated'
 }
 
 /** 우리 훅을 더한 새 설정을 돌려준다. 입력은 바꾸지 않는다. */
-export function withHooks(settings: Settings, command: string): Settings {
+export function withHooks(settings: Settings, command: string, events: HookEvents): Settings {
   const existingHooks = isRecord(settings.hooks) ? settings.hooks : {}
   const nextHooks: Record<string, unknown> = { ...existingHooks }
 
-  for (const event of HOOK_EVENTS) {
+  for (const event of events) {
     const groups = groupsOf(settings, event)
     if (groups.some((group) => ourHooks(group, command).length > 0)) {
       // 멱등: 이미 있으면 그대로 둔다.

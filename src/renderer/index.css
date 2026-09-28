@@ -760,6 +760,26 @@ body {
   padding: 12px;
 }
 
+/*
+ * Codex 훅 승인 안내 (SPEC 21.2). 설치했는데 여기서 멈추면 배지가 영영 안 뜨고
+ * 원인을 알 길이 없다. 그래서 눈에 띄게 — 강조색 테두리를 준다.
+ */
+.settings-approval {
+  background: var(--bg);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  margin-top: 10px;
+  padding: 12px;
+}
+
+.settings-approval p {
+  margin: 0 0 8px;
+}
+
+.settings-approval p:last-child {
+  margin-bottom: 0;
+}
+
 .settings-consent .dialog-actions {
   margin-top: 10px;
 }

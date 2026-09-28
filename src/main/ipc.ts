@@ -5,7 +5,13 @@ import { statSync } from 'node:fs'
 import { isAbsolute } from 'node:path'
 import { BrowserWindow, clipboard, dialog, ipcMain, type IpcMainInvokeEvent } from 'electron'
 import { CHANNELS, type PtyOpenRequest } from '../shared/ipc'
-import { MAX_COMMAND_LENGTH, NODE_ID_PATTERN, type NodeId, type Workspace } from '../shared/types'
+import {
+  MAX_COMMAND_LENGTH,
+  NODE_ID_PATTERN,
+  type AgentKind,
+  type NodeId,
+  type Workspace
+} from '../shared/types'
 import type { OpenDialogOptions } from 'electron'
 import type { PtyManager } from './pty/PtyManager'
 import type { TmuxService } from './tmux/TmuxService'
@@ -66,7 +72,7 @@ export interface IpcDeps {
   git: GitService
   store: WorkspaceStore
   status: StatusWatcher
-  hooks: HookInstaller
+  hooks: Record<AgentKind, HookInstaller>
   notifier: Notifier
   getWindow(): BrowserWindow | null
 }
@@ -137,9 +143,22 @@ export function registerIpcHandlers({
 
   // ⚠️ 사용자 전역 설정을 건드린다 (SPEC 0.4 / 8.4). renderer가 동의 UI를
   // 거친 뒤에만 부른다.
-  ipcMain.handle(CHANNELS.hooksState, () => hooks.state())
-  ipcMain.handle(CHANNELS.hooksInstall, () => hooks.install())
-  ipcMain.handle(CHANNELS.hooksUninstall, () => hooks.uninstall())
+  // renderer가 보낸 값은 전부 검증한다 (SPEC 11). 모르는 에이전트는 거부한다.
+  const installerFor = (agent: unknown): HookInstaller => {
+    if (agent !== 'claude' && agent !== 'codex') throw new Error('잘못된 agent')
+    return hooks[agent]
+  }
+  ipcMain.handle(CHANNELS.hooksState, (_event, agent: unknown) => installerFor(agent).state())
+  ipcMain.handle(CHANNELS.hooksInstall, async (_event, agent: unknown) => {
+    const installer = installerFor(agent)
+    const { backup } = await installer.install()
+    return { backup, needsApproval: installer.needsApproval }
+  })
+  ipcMain.handle(CHANNELS.hooksUninstall, async (_event, agent: unknown) => {
+    const installer = installerFor(agent)
+    const { backup } = await installer.uninstall()
+    return { backup, needsApproval: false }
+  })
 
   ipcMain.on(CHANNELS.appSetBadge, (_event, count: unknown) => {
     if (typeof count !== 'number' || !Number.isFinite(count)) return

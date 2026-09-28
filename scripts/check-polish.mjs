@@ -157,6 +157,15 @@ try {
   )
   reporter.check('노드 모서리가 둥글다', Number.parseInt(idle.radius, 10) >= 14, idle.radius)
 
+  /**
+   * 상태를 넣고 **테두리가 그 상태의 클래스로 바뀔 때까지** 기다린다.
+   *
+   * 고정 시간(350ms)만 기다리면 앱이 바쁠 때(터미널 기동 중) `transition:
+   * border-color 160ms`가 끝나기 전에 읽어서 이전 색이 잡힌다. 실제로 그 때문에
+   * `작업 중`이 흰색으로 읽히는 실패가 간헐적으로 났다.
+   */
+  const rgb = (color) => (/rgba?\((\d+), (\d+), (\d+)/.exec(color) ?? []).slice(1).map(Number)
+
   const apply = async (state) => {
     await evaluate(`(window.__sessionCanvas.applyStatus({
       nodeId: ${JSON.stringify(nodeId)},
@@ -165,8 +174,22 @@ try {
       agentSessionId: null,
       backgroundTasks: null
     }), 1)`)
-    await sleep(350)
-    return borderOf()
+    const deadline = Date.now() + 5000
+    let border = await borderOf()
+    while (!border.classes.includes(`state-${state}`) && Date.now() < deadline) {
+      await sleep(100)
+      border = await borderOf()
+    }
+    // 클래스가 붙은 뒤에도 transition이 남아 있다. 색이 멈출 때까지 본다.
+    let previous = border.color
+    for (let i = 0; i < 20; i += 1) {
+      await sleep(80)
+      border = await borderOf()
+      // 깜빡이는 상태는 영원히 변하므로 애니메이션이 있으면 기다리지 않는다.
+      if (border.animation !== 'none' || border.color === previous) break
+      previous = border.color
+    }
+    return border
   }
 
   const working = await apply('working')
@@ -178,8 +201,6 @@ try {
 
   // 깜빡이는 동안에는 테두리 색이 두 값 사이를 오간다. 정확한 값 대신
   // 색 계열로 본다.
-  const rgb = (color) => (/rgba?\((\d+), (\d+), (\d+)/.exec(color) ?? []).slice(1).map(Number)
-
   const waiting = await apply('waiting')
   const [wr, wg, wb] = rgb(waiting.color)
   reporter.check(
@@ -240,16 +261,24 @@ try {
   // 상태 색은 테마와 무관하게 유지되어야 한다.
   const afterThemeBorder = await borderOf()
   // SPEC 8.1 — 백그라운드는 주황(입력 대기)과 확실히 달라야 한다.
+  //
+  // ⚠️ 이것도 깜빡이므로 **정확한 색을 단언하지 않는다.** `#b18cff`와 `#cdb4ff`
+  // 사이를 오가서 중간값(예: 181,145,255)이 잡힌다. 보라 계열인지로 본다.
   const background = await apply('background')
+  const [br, bg2, bb] = rgb(background.color)
   reporter.check(
     '백그라운드 → 보라 테두리 + 느린 숨쉬기 (SPEC 8.1)',
-    background.color === 'rgb(177, 140, 255)' && background.animation === 'status-pulse-background',
+    bb > 240 &&
+      br > 150 &&
+      bb > br &&
+      br > bg2 &&
+      background.animation === 'status-pulse-background',
     `${background.color}, 애니메이션=${background.animation}`
   )
   reporter.check(
-    '백그라운드는 입력 대기와 다른 색이다',
-    background.color !== 'rgb(255, 157, 60)' && background.color !== 'rgb(255, 180, 101)',
-    background.color
+    '백그라운드는 입력 대기(주황)와 계열이 다르다',
+    bb > br,
+    `파랑 ${bb} > 빨강 ${br} (주황이면 반대다)`
   )
 
   reporter.check(
