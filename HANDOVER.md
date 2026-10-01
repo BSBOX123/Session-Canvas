@@ -4,8 +4,9 @@
 > 정본 명세는 `SPEC.md`.
 
 - 최종 갱신: 2026-09-28
-- 현재 단계: **단계 8 (작업 기록) 진행 중.** 읽기 계층 완료, 붙이는 일 남음.
+- 현재 단계: **단계 A·B (에이전트 추상화) 완료. 다음은 단계 8 (작업 기록) 이어서.**
 - MVP(0~6)와 단계 7·`background` 상태는 `main`에 병합됨.
+- **방향 전환 (2026-09-29)**: 범용화가 먼저다. Codex 지원(A·B) → **단계 8~11** → Windows(C). Windows를 뒤로 미룬 이유는 기능이 갖춰진 뒤 이식하면 한 번만 하면 되기 때문이다 (SPEC 21.6).
 
 ---
 
@@ -21,7 +22,9 @@
 | 5 줌 단계·성능 | ✅ 완료 (2026-09-20) | semantic zoom, WebGL 개수 제한, 단축키 전체, 상태 색 미니맵 |
 | 6 다듬기·패키징 | ✅ 완료 (2026-09-20) | git 브랜치 표시, 색 라벨, 설정 화면, `.app` 빌드와 Finder 경로 확인 |
 | 7 노드 종류 추상화 | ✅ 완료 (2026-09-23) | `BaseNodeData` + `TerminalPayload` 분리, 저장 포맷 v2 + v1 마이그레이션, `NodeRuntime` 계약 |
-| 8 작업 기록 | 🔨 진행 중 (2026-09-28~) | transcript 읽기 계층 완료(`parse.ts`·`workLog.ts`). fs 계층·git 경로·UI 남음 |
+| 8 작업 기록 | 🔨 진행 중 (2026-09-28~) | transcript 읽기 계층 + fs 계층 완료. **git 경로·IPC·UI 남음** |
+| A 에이전트 종류 | ✅ 완료 (2026-09-29) | `TerminalPayload.agent`, `agentSessionId` 개명, 저장 v3, 에이전트별 resume, `Interrupt` 매핑, 생성 대화상자 선택 |
+| B Codex 훅 설치 | ✅ 완료 (2026-09-29) | `~/.codex/hooks.json` 병합, 에이전트별 이벤트 목록, 설정 화면 2개 섹션 + `/hooks` 승인 안내 |
 
 ---
 
@@ -202,6 +205,7 @@ SPEC 12.1의 단계 0~6(MVP, SPEC 2.1)과 SPEC 19장의 단계 7이 끝났다. *
 - **패키징 앱 일상 사용** — 며칠째 실사용 중이고 재부팅도 여러 번 거쳤다. 이 대화도 그 앱의 노드 안에서 돌고 있다.
 
 ### 아직 확인 못 한 것
+- **Codex 실사용 3건** (SPEC 21.7) — A·B는 **격리 환경에서만** 검증했다. ① 앱이 설치한 훅이 실사용 Codex 세션에서 배지를 띄우는지 ② `codex resume <uuid>`가 실제로 이어지는지 ③ Codex transcript(rollout JSONL) 내부 구조. ③은 단계 8에서 자연히 확인된다. ①②는 사용자의 `~/.codex/hooks.json`을 고쳐야 한다.
 - **`Notification` 페이로드에 `background_tasks`가 오는지** — 모른다. 지금은 `StatusWatcher`가 `Stop`에서 본 개수를 **기억**해 판단한다(SPEC 8.2). 들어온다면 기억 대신 그 값을 직접 쓰는 쪽이 정확하다. 노드가 보라색(`백그라운드`)일 때 `~/.session-canvas/status/<노드id>.json`을 읽으면 실제 payload가 찍혀 있다.
 - **테스트 1회 실패** — 한 번 실패한 뒤 3회 재실행 전부 통과했다. `statusWatcher`의 `fs.watch` 타이밍 계열로 **추정**하지만 확정하지 못했다(그 파일이 1.9초로 가장 느리다).
 
@@ -271,6 +275,66 @@ v2는 "그 에이전트가 **무엇을** 했나"를 푼다.
 **설계상 정해진 것** (SPEC 16.2): 결과(무엇이 바뀌었나)는 **git**, 의도(무엇을 시켰나·왜)는 **transcript**.
 
 ## 6. 삽질 기록
+
+### A-1. Codex 훅 실측에서 `-c` 주입이 조용히 무시됐다 ⭐⭐
+
+Codex 훅 payload를 재려고 `codex -c 'hooks.Stop=[...]'`로 훅을 주입했다. 대화형에서
+**이벤트가 0건**이었다. "Codex는 대화형에서 훅이 안 뜬다"고 결론 내릴 뻔했고, 그러면
+에이전트 추상화 설계 전체가 달라졌을 것이다.
+
+화면 구석의 `⚠ 1 warning`을 눌러 보니 이유가 있었다:
+
+```
+Running without the shared background server: command-line configuration
+overrides (-c, --enable, --disable, --search) requires embedded mode.
+```
+
+공유 백그라운드 데몬이 돌고 있으면 `-c`가 **무시된다.** `--no-daemon`을 붙이자 대화형에서
+`SessionStart` → `UserPromptSubmit` → `PreToolUse` → `PostToolUse` → `Stop` 5건이 떴다.
+
+**교훈**: 도구가 내 설정을 **받아들였는지** 먼저 확인하라. 조용히 무시하는 경로가 있다.
+경고를 화면 구석에 한 줄로만 띄우는 CLI가 많다.
+
+덤으로 알아낸 것: Codex 훅은 **사용자가 `/hooks`로 승인**해야 실행되고 신뢰가 훅 정의의
+**해시**에 묶인다. 실측에는 `--dangerously-bypass-hook-trust`를 썼지만 **앱은 쓰지 않는다** —
+사용자 몰래 훅을 돌리는 셈이다.
+
+### A-2. Claude Code 버전이 올라가 점검이 깨졌다 ⭐⭐
+
+`verify:status`가 "Claude Code가 시작되지 않았습니다"로 타임아웃했다. 잔류 프로세스를
+정리하고 단독으로 돌려도 같았다. 내 변경(`agent` 필드)을 의심했지만 아니었다.
+
+**Claude Code가 2.1.280 → 2.1.283으로 올라가면서 신뢰 확인 문구가 바뀌었다.**
+
+| | 2.1.280 | 2.1.283 |
+|---|---|---|
+| 질문 | 질문에 `trust this folder` 포함 | `Quick safety check: Is this a project you created or one you trust?` |
+| 선택지 | — | `Yes, I trust this folder` |
+
+점검은 `/trust this folder/i`로 감지했는데 그 문구가 **선택지에만** 남았다. 그리고 "이미
+시작됨" 판정이 `/Claude Code/`였는데 — **신뢰 화면 자체에** "Claude Code'll be able to read,
+edit, and execute files here."가 들어 있다. 선택지가 그려지기 전에 폴링하면 신뢰 화면을
+시작으로 오판하고 **답하지 않은 채 빠져나와** 영원히 기다린다.
+
+확인 방법: 임시 폴더에서 `claude`를 tmux로 직접 띄워 새 문구를 눈으로 봤다. 그리고 프로젝트
+로컬 훅이 여전히 동작하는지 따로 확인했다(훅 이벤트 발생 확인) — 훅 체계가 깨진 게
+아니라는 것을 분리해서 확인한 것이 중요했다.
+
+**교훈**: 에이전트 CLI의 **UI 문구에 의존하는 점검은 버전이 올라가면 깨진다.** 여러 표현을
+함께 보고, "시작됨" 같은 판정에 **그 화면에도 있는 문자열**을 쓰지 않는다.
+
+⚠️ **다만 이것이 유일한 원인이라고 증명하지는 못했다.** 문구를 고친 뒤에도 한 번 더 실패했고
+그다음 실행은 통과했다. **간헐적**이라는 뜻이다. 그래서 실패 시 **노드 화면을 그대로
+덤프**하도록 점검에 넣어 뒀다(`check-status.mjs`) — 다음에 재발하면 추측하지 말고 그 출력을
+먼저 보라. 남은 의심: 노드 폭(약 80칸)에서의 줄바꿈, `claude` 기동이 느릴 때의 경쟁.
+
+### A-3. 실패한 점검이 앱을 남겨 다음 실행을 막는다
+
+점검이 실패로 끝나면 띄운 dev 앱이 9222 포트를 쥔 채 남는다. 그 뒤 실행은 전부
+"포트 9222에 이미 앱이 떠 있습니다"로 죽는다. 이번 구간에서 세 번 걸렸다.
+
+`pkill -f "scripts/check-"` 와 `pkill -f "node_modules/electron/dist/Electron"` 로 정리한다.
+**사용자 앱은 `dist/mac-arm64/` 경로라 이 패턴에 걸리지 않는다** — 그래서 안전하다.
 
 ### 8-1. SPEC의 데이터 출처 전제가 틀렸다 — 셸로 고친 파일은 기록에 없다 ⭐⭐⭐
 
