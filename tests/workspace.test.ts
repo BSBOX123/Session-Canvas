@@ -69,12 +69,12 @@ describe('상태 전이 (SPEC 8.1)', () => {
     return useWorkspace.getState().addNode({ ...base, position: { x: 0, y: 0 } }).id
   }
 
-  function apply(id: string, state: SessionState, claudeSessionId: string | null = null): void {
+  function apply(id: string, state: SessionState, agentSessionId: string | null = null): void {
     useWorkspace.getState().applyStatus({
       nodeId: id,
       state,
       at: new Date().toISOString(),
-      claudeSessionId,
+      agentSessionId,
       backgroundTasks: null
     })
   }
@@ -117,7 +117,7 @@ describe('상태 전이 (SPEC 8.1)', () => {
   it('SessionStart의 session_id를 노드에 저장한다 (SPEC 5.4)', () => {
     const id = addNode()
     apply(id, 'unknown', 'sess-abc')
-    expect(useWorkspace.getState().nodes[0].terminal.claudeSessionId).toBe('sess-abc')
+    expect(useWorkspace.getState().nodes[0].terminal.agentSessionId).toBe('sess-abc')
   })
 
   // 훅은 앱이 모르는 노드에도 파일을 쓸 수 있다 (닫은 노드 등).

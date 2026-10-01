@@ -12,7 +12,7 @@
 
 ## 0. 이 문서를 읽는 Claude Code에게 — 작업 규칙
 
-1. **이 문서가 정본이다.** 구현 중 문서와 다르게 해야 할 이유가 생기면, 코드만 바꾸지 말고 해당 절을 수정하고 21장 변경 이력에 한 줄 남긴다.
+1. **이 문서가 정본이다.** 구현 중 문서와 다르게 해야 할 이유가 생기면, 코드만 바꾸지 말고 해당 절을 수정하고 22장 변경 이력에 한 줄 남긴다.
 2. **12장의 단계 순서대로 진행한다.** 각 단계의 "완료 기준"을 모두 만족하기 전에 다음 단계로 넘어가지 않는다. 단계가 끝나면 커밋하고 `HANDOVER.md`를 갱신한다.
 3. **13장 "확인 필요" 항목은 추측으로 구현하지 않는다.** 공식 문서나 실제 실행으로 확인한 뒤 구현하고, 확인 결과를 문서에 반영한다. 특히 Claude Code hooks 스키마(R1)는 반드시 최신 공식 문서(`https://docs.claude.com/en/docs/claude-code/hooks`)로 확인한다.
 4. **사용자 전역 설정을 함부로 건드리지 않는다.** `~/.claude/settings.json`, `~/.tmux.conf`, `~/.zshrc` 등 앱 밖의 파일은 수정하지 않는다. 유일한 예외는 8.4의 훅 설치이며, 앱 UI에서 사용자가 명시적으로 동의했을 때만 백업 후 수행한다. 개발 중 테스트도 임시 HOME 또는 fixture 파일로 한다.
@@ -61,11 +61,12 @@ macOS에서 여러 Claude Code 세션을 동시에 돌릴 때 iTerm 창을 여�
 ### 2.2 명시적 비범위 (MVP 제외)
 - 에이전트 간 출력 전달(터미널 → 터미널 파이프), 노드 간 연결선
 - 브라우저 미리보기, 파일 에디터, git worktree 관리
-- 원격(SSH) 세션, Windows/Linux 지원
+- 원격(SSH) 세션, Linux 지원
 - 다중 창, 다중 워크스페이스(워크스페이스는 1개)
 - 클라우드 동기화, 공유
 - 코드 서명·공증(notarization) — 로컬 빌드만
-- Claude Code 외 CLI(Codex 등)의 상태 감지 — **실행은 되지만 상태 배지는 표시하지 않는다**
+
+> **개정 (2026-09-29)**: ~~Claude Code 외 CLI(Codex 등)의 상태 감지~~ 는 비범위에서 **빼낸다.** Codex 훅을 실측해 보니 Claude Code와 거의 같은 모양이어서 D6을 그대로 쓸 수 있다 → **21장**. Windows도 비범위에서 빼내되 **WSL2 전제**로 한다(21.5).
 
 ### 2.3 참고한 기존 프로젝트
 같은 발상의 오픈소스가 있으므로 막히면 구현을 참고한다(코드 복사가 아니라 설계 참고).
@@ -86,8 +87,8 @@ macOS에서 여러 Claude Code 세션을 동시에 돌릴 때 iTerm 창을 여�
 | D3 | 터미널 렌더링 | **@xterm/xterm** + addons (6장) | 사실상 표준 |
 | D4 | 캔버스 | **@xyflow/react (React Flow)** | 노드 드래그·리사이즈·줌·미니맵 기본 제공 |
 | D5 | 세션 백엔드 | **tmux, 전용 소켓 `-L session-canvas`** | 앱이 죽어도 세션 유지. 사용자 기존 tmux와 격리 |
-| D6 | 상태 감지 | **Claude Code hooks → 상태 파일 → fs watch** | 출력 파싱보다 정확. 앱이 꺼져 있어도 상태가 파일에 남음 |
-| D7 | 훅 설치 위치 | **`~/.claude/settings.json`(사용자 전역)에 병합, 환경변수로 가드** | 노드 안에서 `claude`를 어떻게 실행하든 동작. 앱 밖 세션에서는 훅이 즉시 종료 |
+| D6 | 상태 감지 | **에이전트 hooks → 상태 파일 → fs watch** | 출력 파싱보다 정확. 앱이 꺼져 있어도 상태가 파일에 남음. **Claude Code와 Codex가 같은 방식**(21.1 실측) |
+| D7 | 훅 설치 위치 | 에이전트별 **사용자 전역** 설정에 병합, 환경변수로 가드. Claude Code는 `~/.claude/settings.json`, Codex는 `~/.codex/hooks.json` | 노드 안에서 어떻게 실행하든 동작. 앱 밖 세션에서는 훅이 즉시 종료. ⚠️ **Codex는 사용자가 `/hooks`로 직접 승인해야 실행된다**(21.2) |
 | D8 | 상태 관리 | **zustand** (renderer) | 가볍고 React 밖(터미널 레지스트리)에서도 접근 쉬움 |
 | D9 | 영속 저장 | **JSON 파일** (`app.getPath('userData')/workspace.json`) | DB 불필요 규모 |
 | D10 | 테스트 | **vitest** (단위), 수동 인수 체크리스트 (단계별) | |
@@ -153,6 +154,9 @@ session-canvas/
 │  │  ├─ workspace/WorkspaceStore.ts
 │  │  ├─ workspace/serialize.ts      # 순수 함수, 단위 테스트 대상
 │  │  ├─ notify/Notifier.ts
+│  │  ├─ transcript/parse.ts          # 16장 순수 함수, 단위 테스트 대상
+│  │  ├─ transcript/workLog.ts        # 16장 누적·증분 (R16)
+│  │  ├─ transcript/TranscriptStore.ts # 16장 파일 찾기·증분 읽기
 │  │  ├─ git/GitService.ts           # 7.1 브랜치 표시
 │  │  ├─ resources.ts                # resources/ 실제 파일 경로 해석
 │  │  └─ ipc.ts
@@ -713,31 +717,109 @@ MVP가 푼 것은 "**어느** 에이전트가 날 기다리는가"였다. v2가 
 
 ## 16. 데이터 출처 — Claude Code transcript
 
-### 16.1 이미 디스크에 있다 (실측)
-`~/.claude/projects/<프로젝트>/<session_id>.jsonl`에 필요한 것이 **전부 들어 있다.** 훅이 주는 `transcript_path`가 이 파일을 가리킨다(8.2).
+### 16.1 대부분 디스크에 있다 (실측)
+`~/.claude/projects/<프로젝트>/<session_id>.jsonl`. 훅이 주는 `transcript_path`가 이 파일을 가리킨다(8.2).
 
-| 알고 싶은 것 | 들어 있는 곳 |
+**2026-09-25 / 2.1.280 재측정.** 실제 파일 10개(54~7227줄)를 읽어 아래 표를 고쳤다.
+
+| 알고 싶은 것 | 들어 있는 곳 | 신뢰도 |
+|---|---|---|
+| 무엇을 시켰나 | `last-prompt`(`lastPrompt`·`leafUuid`·`sessionId`), `type: "user"` | 높음 |
+| 무엇을 했나 | assistant 메시지의 `tool_use` 블록 (`name`, `input`) | 높음 |
+| 어떤 파일을 읽었나 | `Read` 도구의 `file_path` | 높음 |
+| 언제·어디서 | `timestamp`, `cwd`, `gitBranch` | 높음 |
+| 세션이 무슨 작업인지 | `ai-title` → `{ aiTitle, sessionId }` | ⚠️ **낡는다** (아래) |
+| 대화의 순서·갈래 | `uuid`, `parentUuid` | 높음 |
+| 세션이 어디로 이어졌나 | `continued-in` → `{ continuedInSessionId }` | 높음 |
+| **어떤 파일이 바뀌었나** | `file-history-delta.trackingPath`, `file-history-snapshot.snapshot.trackedFileBackups`(경로 → 백업정보 맵) | ⚠️ **불완전** |
+| **무엇이 어떻게 바뀌었나** | `Edit`의 `old_string`/`new_string`, `Write`의 `content` | ⚠️ **불완전** |
+
+#### ⚠️ 셸로 고친 파일은 transcript에 남지 않는다 (R20)
+**`file-history`는 `Edit`·`Write` 도구를 거친 변경만 기록한다.** `Bash`로 `cat > ... <<EOF`나 `python`을 써서 고친 파일은 **흔적이 없다.**
+
+측정(세션별 `Edit+Write` / `Bash` / `file-history-delta` / 추적된 파일 수):
+
+| 줄 | Edit+Write | Bash | delta | 추적 파일 | 세션 |
+|---|---|---|---|---|---|
+| 6055 | **0** | 776 | **0** | **0** | Session Canvas (단계 7 작업 — 실제로는 파일 30개를 고쳤다) |
+| 2020 | **0** | 269 | **0** | **0** | cie |
+| 5477 | 90 | 556 | 48 | 71 | lecture-mate |
+| 7227 | 16 | 611 | 15 | 15 | cie |
+
+`Edit`·`Write`가 0이면 `file-history`도 정확히 0이다. **드문 경우가 아니라 기본값일 수 있다.**
+
+다만 정보가 사라지는 것은 아니다. `Bash`의 `tool_use.input.command`에 **명령 전문이 heredoc 내용까지 그대로** 남는다(1779자 예시 확인). 즉 **"무엇을 했나"는 읽을 수 있고, "어떤 파일이 바뀌었나"만 믿을 수 없다.**
+
+#### ⚠️ `ai-title`은 세션 내내 바뀌지 않는다
+이번 세션(6055줄, 단계 0~8에 걸쳐 있다)의 `ai-title`은 **288번 기록됐지만 전부 같은 문자열**이었다:
+
+```
+"Session Canvas stage 0 scaffold"
+```
+
+세션 **시작 시점의 주제**에 고정된다. 긴 세션일수록 낡는다.
+
+#### 그럼에도 제목은 `ai-title`로 채운다 (실측으로 뒤집은 결정)
+대안은 "가장 최근 프롬프트"였다. 실제 프롬프트를 보고 **버렸다** — 최근 프롬프트는 내용이 없는 경우가 대부분이었다.
+
+| 세션 | `ai-title` | 가장 최근 프롬프트 | 25자 이상으로 올려도 |
+|---|---|---|---|
+| lecture-mate | LectureMate AI 풀스택 프로젝트 구현 | `머지해` | `너가 생각하는 최고의 순서대로 해` |
+| cie | HANDOVER.md 파일 확인 | `커밋해` | `업데이트 실패 원인 확인해줘` |
+| 맥북 진단 | 맥북 성능 저하 진단 | `캡처는 어디에 저장되는거야?` | 같음 |
+| smartfarm | Notion workspace | `좋아. 커밋하고 리소스 생성해.` | `서버를 git 액션 사용해서…` |
+| Session Canvas | stage 0 scaffold ← 낡음 | `a로 가고 다음 진행하자` | `1. push해 2. 앱은 너가…` |
+
+**길이 기준을 올려도 나아지지 않는다** — 더 오래된, 역시 무의미한 프롬프트를 고를 뿐이다. 7개 중 6개에서 `ai-title`이 더 나은 주제 label이었다.
+
+그래서 이렇게 나눈다.
+
+- **제목** = `ai-title` (`titleSuggestionOf`). 없으면 지금처럼 폴더명
+- **"지금" 줄** = 가장 최근 프롬프트의 첫 줄 (`currentActivityOf`). 헤더 셋째 줄에 둔다. `ai-title`이 낡는 약점을 이 줄이 메운다
+- **사용자가 직접 쓴 제목은 덮지 않는다.** 빈 제목일 때만 자동으로 채운다
+
+#### `last-prompt`는 턴마다 다시 기록된다
+같은 프롬프트가 연달아 온다(실측: 한 프롬프트가 288번). 그대로 쌓으면 타임라인이 같은 줄로 가득 찬다. **연속 중복은 하나로 본다.**
+
+#### ⚠️ 파일 경로를 계산하지 않는다
+경로는 `~/.claude/projects/<슬러그>/<session_id>.jsonl`이다. 슬러그는 `cwd`의 **비영숫자를 `-`로 바꾼 것**으로 보인다 — 실측 폴더 35개 중 **32개가 일치**했다.
+
+**그런데 그 규칙으로 찾으면 안 된다.** 폴더는 **세션이 시작된 위치**로 정해지고, 레코드의 `cwd`는 그 뒤 바뀔 수 있다. 어긋난 3건을 관측했다:
+
+| 폴더 | 그 안 세션의 `cwd` |
 |---|---|
-| 무엇을 시켰나 | `last-prompt`, `type: "user"` 항목 |
-| 무엇을 했나 | assistant 메시지의 `tool_use` 블록 (`name`, `input`) |
-| **어떤 파일이 바뀌었나** | `file-history-delta.trackingPath` |
-| **무엇이 어떻게 바뀌었나** | `Edit` 도구의 `old_string`/`new_string`, `Write`의 `content` |
-| 어떤 파일을 읽었나 | `Read` 도구의 `file_path` |
-| 언제·어디서 | `timestamp`, `cwd`, `gitBranch` |
-| 세션이 무슨 작업인지 | **`ai-title`** (Claude Code가 자동으로 붙인 제목) |
-| 대화의 순서·갈래 | `uuid`, `parentUuid` |
+| `…-Desktop-CIE-Cl` | `/Users/…/dev/project/cie` |
+| `…-dev-project-cie` | `/Users/…/Desktop/CIE_Cl` |
+| `…-T-tmpu0dfsfuh` | `/Users/…/dev/project/lecture-mate` |
 
-실측 예(LectureMate 세션 1개): 4368줄, `file-history-delta` 17건, `Edit` 15회, `Write` 37회.
+앞 두 개는 **서로 뒤바뀌어** 있다(프로젝트를 옮긴 세션). 그래서 **session id로 폴더 전체를 훑어 찾는다** — 폴더 35개 훑기가 0.7ms다.
 
-**따라서 "작업 기록"은 수집 문제가 아니라 읽기·색인·표시 문제다.** 훅으로 따로 모을 필요가 없고, **Session Canvas 밖에서 돌린 과거 세션도 읽을 수 있다.**
+**같은 id가 두 폴더에 있는 경우도 1건** 있었다: 옮기기 전 27줄 껍데기(26KB)와 옮긴 뒤 7227줄 본체(12MB). **가장 최근에 수정된 것**을 쓴다.
 
-### 16.2 diff는 transcript만으로 재구성한다
-우선순위대로 쓴다.
+#### `attachment`은 대부분 잡음이다
+전체의 3분의 1이 `attachment`다(6019줄 중 2036건). `attachment.type`이 `hook_success`(959)·`total_tokens_reminder`(851)·`deferred_tools_record`(146) 등이고 작업 기록과 무관하다. **건너뛴다.** 단 `edited_text_file`(`filename`·`snippet`)은 파일 내용 스냅숏이라 보조로 쓸 수 있다.
 
-1. **`Edit` 도구의 `old_string`/`new_string`** — 그 자체가 diff다. 가장 정확하고 의도까지 남아 있다
-2. **`Write` 도구의 `content`** — 전체 교체
-3. `file-history` 백업 (`~/.claude/backups/`) — 보조. `backupFileName`이 `null`인 경우가 관측됐다(R15)
-4. git — 최후 수단
+**결론: "작업 기록"은 수집 문제가 아니라 읽기·색인·표시 문제다.** 훅으로 따로 모을 필요가 없고 Session Canvas 밖에서 돌린 과거 세션도 읽힌다. **단, 바뀐 파일은 git에서 얻는다(16.2).**
+
+### 16.2 변경은 git에서, 의도는 transcript에서
+16.1의 측정 결과로 **1순위를 바꿨다.** transcript만으로는 셸로 고친 파일을 못 본다.
+
+역할을 이렇게 나눈다.
+
+| | 출처 | 왜 |
+|---|---|---|
+| **결과** (어떤 파일이 바뀌었나·어떻게) | **git** | 어떤 방법으로 고쳤든 남는다. 노드는 이미 `terminal.cwd`를 갖고 `GitService`(단계 6)가 있다 |
+| **의도** (무엇을 시켰나·무엇을 했나·왜) | **transcript** | git에는 없다. 프롬프트·도구 호출·`ai-title`이 여기에만 있다 |
+
+바뀐 파일의 **보조** 신호는 우선순위대로:
+
+1. `file-history-delta.trackingPath` — `Edit`·`Write`를 거친 변경
+2. `file-history-snapshot.snapshot.trackedFileBackups`의 키 — 같은 성격, 빈도는 더 높다
+3. `Edit`의 `old_string`/`new_string`, `Write`의 `content` — 있으면 **그 자체가 diff이고 의도까지 남아 있다.** git diff보다 읽기 좋다
+4. `attachment.edited_text_file`의 `filename`·`snippet`
+5. `file-history` 백업 (`~/.claude/backups/`) — `backupFileName`이 `null`인 경우가 관측됐다(R15)
+
+즉 **git으로 "무엇이 바뀌었는지" 빠짐없이 잡고, transcript로 "누가 왜 바꿨는지"를 붙인다.** 3번이 있으면 그것을 우선 보여 주고, 없으면 git diff로 대신한다.
 
 ### 16.3 ⚠️ 비공식 포맷이다
 이 JSONL은 **문서화되지 않은 Claude Code 내부 포맷**이다. 버전이 바뀌면 깨질 수 있다.
@@ -834,7 +916,7 @@ v1은 `cwd`·`command`·`tmuxSession`·`claudeSessionId`가 노드에 평평하�
 | 단계 | 내용 | 완료 기준 |
 |---|---|---|
 | **7** 노드 종류 추상화 | 18장 전체 | **겉보기 변화 없음** — 기존 점검(`verify:*`) 전부 통과 · v1 `workspace.json`이 손실 없이 열림 · 터미널 페이로드 분리 |
-| **8** 작업 기록 | 16장 읽기·색인. 노드별 타임라인(시킨 것 → 한 것 → 바뀐 파일), 변경 파일 목록·배지, `ai-title`로 제목 자동 채우기 | 터미널 스크롤백을 읽지 않고 "이 에이전트가 무엇을 했는지" 파악 가능 · transcript를 못 읽어도 앱이 정상 동작 |
+| **8** 작업 기록 | 16장 읽기·색인. 노드별 타임라인(시킨 것 → 한 것 → 바뀐 파일), 변경 파일 목록·배지, **`ai-title`로 제목 자동 채우기 + "지금" 줄에 최근 프롬프트**(§16.1) | 터미널 스크롤백을 읽지 않고 "이 에이전트가 무엇을 했는지" 파악 가능 · transcript를 못 읽어도 앱이 정상 동작 |
 | **9** 변경 뷰어 | 17장. `changes` 노드 — 마지막 확인 이후 diff, [확인함], 에이전트 간 **파일 충돌 경고** | 여러 노드의 변경을 나란히 비교 가능 · 두 노드가 같은 파일을 건드리면 경고 · 확인 지점이 재시작 후에도 유지 |
 | **10** 역추적 | 파일 → 그 파일을 바꾼 세션·프롬프트로 점프 | "이 코드 왜 이렇게 됐지?"를 클릭 한 번으로 |
 | **11** 캔버스 정리 | 프레임(그룹), 노드 목록 패널, 다중 선택·정렬. **모드 분리**(아래) | 노드 20개를 프레임으로 관리 · 노드 모드에서 `Esc`·`Ctrl+*`이 그대로 전달됨 |
@@ -862,12 +944,109 @@ Figma는 `V`·`F`·`T` 한 글자 단축키로 살지만 **우리 터미널은 �
 | R15 | `backup.backupFileName`이 `null`인 경우가 관측됐다 | 어떤 조건에서 백업이 남는지. 안 남아도 16.2의 1·2번으로 충분한지 | 단계 9 |
 | R16 | 세션당 4천 줄을 매번 읽는 비용 | 증분 읽기·색인. 노드 10개면 4만 줄 | 단계 8 |
 | ~~R17~~ | ~~Edit/Write의 `tool_input` 구조~~ | ✅ **확인 완료**: `Edit`=`file_path`·`old_string`·`new_string`·`replace_all`, `Write`=`file_path`·`content`, `Read`=`file_path` | — |
+| R20 | **셸로 고친 파일은 transcript에 안 남는다** (16.1 실측). git을 1순위로 올렸으나, 커밋되지 않은 변경·`cwd` 밖의 변경·여러 노드가 같은 저장소를 건드릴 때를 어떻게 가릴지 | 단계 8에서 git 경로를 만들고 노드 2개로 같은 저장소를 동시에 건드려 확인 | 단계 8 |
 | R18 | 프레임 중첩과 `measured`·리사이즈 로직의 상호작용 | 프레임 안 노드를 리사이즈. **리사이즈는 이미 한 번 크게 깨졌다**(HANDOVER 6-4) | 단계 11 |
 | R19 | 레이어 z-order를 React Flow가 어디까지 지원하는지 | 그룹 안 z-order 직접 확인 | 단계 11 |
 
 ---
 
-## 21. 변경 이력
+## 21. 에이전트 추상화 — Claude Code 외 CLI 지원
+
+> **방향 전환 (2026-09-29).** "범용으로 쓸 수 있게" 한다. 1순위는 **Codex 지원**, 2순위는 **Windows(WSL2)**. v2의 단계 8~11은 그 뒤로 미룬다.
+
+### 21.1 Codex 훅 실측 (2026-09-29, codex-cli 0.157.1)
+**문서가 아니라 실제 stdin 덤프다.** tmux 안에서 대화형으로 띄워 확인했다.
+
+공통 필드가 **Claude Code와 같다**: `session_id` · `transcript_path` · `cwd` · `hook_event_name`. 그래서 `mapEvent`를 거의 그대로 쓴다.
+
+| 이벤트 | Codex 고유 필드 | Claude Code와 비교 |
+|---|---|---|
+| `SessionStart` | `source` | 동일 |
+| `UserPromptSubmit` | `prompt`, `turn_id` | 동일 (+`turn_id`) |
+| `PreToolUse` | `tool_name`, `tool_input`, `tool_use_id`, `turn_id` | 동일 |
+| `PostToolUse` | + `tool_response` | 동일 |
+| `PermissionRequest` | `tool_name`, `tool_input`, `turn_id` | 동일 |
+| `Stop` | `stop_hook_active`, `last_assistant_message`, `turn_id` | 동일 |
+| `SessionEnd` | `reason` | 동일 |
+| `Interrupt` | — | **Claude Code에 없음** (Claude Code의 `StopFailure`가 Codex에 없다) |
+| `PreCompact`·`PostCompact`·`SubagentStart`·`SubagentStop` | — | 쓰지 않는다. 모르는 이벤트는 버린다 |
+
+모든 이벤트에 `model`·`permission_mode`가 붙는다(`SessionEnd`는 제외).
+
+**차이 셋 — 이것만 따로 다룬다.**
+
+1. **`background_tasks`가 없다.** 보라색 `background` 상태(8.1)는 **Codex 노드에 적용되지 않는다.** `mapEvent`는 배열이 아니면 "모른다"로 보고 `done`으로 두므로 그대로 안전하다
+2. **`SessionStart`가 첫 턴에 발생한다.** Claude Code는 실행 즉시인데, Codex는 TUI가 떠도 안 오고 **사용자가 첫 프롬프트를 보낼 때** 온다(실측: 프롬프트 전 0건 → 후 5건). 그래서 codex 노드는 첫 프롬프트까지 `대기`로 남고, resume용 세션 id도 그때 채워진다
+3. **`Interrupt`를 매핑에 더한다.**
+
+### 21.2 ⚠️ Codex 훅은 사용자가 승인해야 실행된다
+> "Before a non-managed hook can run, Codex requires you to review and trust the exact hook definition."
+
+- 신뢰가 **훅 정의의 해시**에 묶인다. **훅 명령을 한 글자라도 바꾸면 사용자가 다시 승인해야 한다**
+- 승인은 Codex TUI의 **`/hooks`** 로 한다. 자동화할 수 없다 — 의도된 보안 설계다
+- `--dangerously-bypass-hook-trust`는 일회성 우회다. **앱이 이 플래그를 쓰지 않는다**(사용자 몰래 훅을 돌리는 셈이다). 실측할 때만 썼다
+
+**따라서 설정 화면(9.1)이 두 단계를 안내해야 한다**: ① 앱이 `~/.codex/hooks.json`에 병합 → ② 사용자가 Codex에서 `/hooks` 실행해 승인. ②를 건너뛰면 상태 배지가 영영 안 뜬다.
+
+### 21.3 실측 중 걸린 함정 (재현 방법)
+- **`-c` 설정 주입이 대화형에서 조용히 무시된다.** 공유 백그라운드 데몬이 돌고 있으면 그렇다. 화면 구석 `⚠ 1 warning`으로만 알려 준다. **`--no-daemon`**(embedded mode)을 붙여야 먹는다. 이걸 모르면 "Codex는 대화형에서 훅이 안 뜬다"고 잘못 결론 낸다
+- 새 폴더에서 첫 실행하면 **"Trust this folder?" TUI**가 먼저 뜬다(Claude Code와 같은 패턴, HANDOVER 4-4). 결정은 `~/.codex/config.toml`의 `[projects."<경로>"] trust_level`에 **저장된다**
+- `codex doctor`에 **훅 항목이 없다.** 훅이 왜 안 뜨는지 진단해 주지 않는다
+- [openai/codex#17532](https://github.com/openai/codex/issues/17532)의 "대화형에서 훅이 안 뜬다"는 **repo-local `.codex/config.toml` 한정**이다. 사용자 전역은 정상 동작을 확인했다
+
+### 21.4 에이전트별 차이 표 (구현 기준)
+| | Claude Code | Codex |
+|---|---|---|
+| 실행 명령 | `claude` | `codex` |
+| 이어서 | `claude --resume <uuid>` | **`codex resume <uuid>`** |
+| 훅 설정 | `~/.claude/settings.json` (JSON) | `~/.codex/hooks.json` (JSON) |
+| 훅 승인 | 불필요 | **필요 (`/hooks`)** |
+| transcript | `~/.claude/projects/<슬러그>/<id>.jsonl` | `~/.codex/sessions/<YYYY>/<MM>/<DD>/rollout-<시각>-<id>.jsonl` |
+| `SessionStart` 시점 | 실행 즉시 | **첫 턴** |
+| 백그라운드 작업 상태 | ✅ | ❌ (`background_tasks` 없음) |
+
+두 transcript 모두 **JSONL**이고 경로는 훅 payload의 `transcript_path`가 알려 준다 — **경로를 계산하지 않는다**(16.1에서 배운 것과 같다).
+
+### 21.5 Windows (WSL2 전제)
+`tmux`가 Windows에 없다. D5(세션 백엔드)의 근거가 "앱이 죽어도 세션 유지"이므로 tmux를 버릴 수 없다. 검토한 셋 중 **WSL2 안에서 tmux를 돌리는 방식**을 택한다.
+
+| 방식 | 세션 생존 | 판단 |
+|---|---|---|
+| **WSL2 안에서 tmux** | ✅ | **채택.** 아키텍처를 거의 그대로 유지 |
+| 네이티브 + 자체 영속 헬퍼(ConPTY) | 직접 구현 | 기각 — tmux를 다시 만드는 일 |
+| Windows는 영속성 포기 | ❌ | 기각 — 앱의 존재 이유를 버린다 |
+
+손봐야 할 곳(조사 완료): `tmux`를 참조하는 파일 20개, `env/loginEnv.ts`(Windows에 `$SHELL -l -i` 대응물이 없다 — 건너뛴다), 훅 스크립트(`#!/bin/sh`, WSL 안이면 그대로), `~/.claude`·`~/.codex` 경로(WSL 파일시스템), Dock 배지 → 작업 표시줄 오버레이, `electron-builder`에 `win`(nsis) 타깃. node-pty는 ConPTY로 Windows를 지원한다.
+
+**미결**: 경로 변환(`C:\` ↔ `/mnt/c/`) 범위, WSL 미설치 시 안내 화면, 서명 없는 설치 파일의 SmartScreen 경고.
+
+### 21.6 구현 단계
+| 단계 | 내용 | 완료 기준 |
+|---|---|---|
+| **A** 에이전트 종류 | `TerminalPayload`에 `agent`, 생성 대화상자에서 선택, `Interrupt` 매핑, resume 명령 분기 | codex 노드가 상태 배지까지 정상 · claude 노드는 **겉보기 변화 없음** |
+| **B** Codex 훅 설치 | `~/.codex/hooks.json` 병합(덧붙이기·idempotent·백업) + 설정 화면의 `/hooks` 승인 안내 | 승인 후 codex 노드에 `작업 중`·`입력 대기`·`완료`가 뜬다 |
+| **C** Windows (WSL2) | 21.5 | Windows에서 노드를 띄우고 앱을 죽여도 세션이 살아 있다 |
+
+**순서 개정 (2026-09-29).** A·B를 끝낸 뒤 **C를 미루고 v2 단계 8~11을 먼저 한다.**
+
+- Windows는 작업이 크고 불확실한데(파일 20개, 경로 변환, 빌드 타깃), 지금 들어가면 v2의 핵심 기능이 계속 미뤄진다
+- 단계 8의 읽기 계층은 이미 만들어 두었다(`main/transcript/`). Codex transcript도 JSONL이므로 같은 방식으로 붙는다
+- 기능이 갖춰진 뒤 Windows로 가면 **한 번만 이식하면 된다.** 지금 이식하면 8~11을 만들 때마다 양쪽을 맞춰야 한다
+
+따라서 실제 순서는 **A → B → 8 → 9 → 10 → 11 → C**다.
+
+### 21.7 Codex 미확인 항목
+A·B는 **격리 환경에서만** 검증했다. 실제로 확인하려면 사용자의 `~/.codex/hooks.json`을 고치고 Codex에서 `/hooks`를 승인해야 한다.
+
+- ⬜ 앱이 설치한 훅이 **실사용 Codex 세션에서 배지를 띄우는지**
+- ⬜ `codex resume <uuid>`로 [이전 대화 이어서]가 실제로 이어지는지
+- ⬜ Codex transcript(rollout JSONL)의 내부 구조 — 단계 8에서 필요하다
+
+단위 테스트와 가짜 HOME 검증은 통과했으므로 구조는 맞다. **위 셋은 실물 확인이 남았다는 뜻이다.**
+
+---
+
+## 22. 변경 이력
 | 버전 | 일자 | 내용 |
 |---|---|---|
 | v0.1 | 2026-09-20 | 초안. Electron + React Flow + xterm.js + node-pty + tmux 구조 확정, hooks 기반 상태 감지 설계, 단계 0~6 정의 |
@@ -890,3 +1069,8 @@ Figma는 `V`·`F`·`T` 한 글자 단축키로 살지만 **우리 터미널은 �
 | v0.2.2 | 2026-09-23 | §7.3 개정: "노드로 줌인"을 배율 1.0 고정에서 **노드 전체가 들어오도록 맞추기**로 바꿨다(큰 노드가 잘리던 문제). 작업 중인 노드는 미리보기 단계에서도 입력을 받는다. 창이 가려지면 애니메이션 없이 즉시 이동한다(숨겨진 페이지는 rAF가 멈춰 이동이 영영 완료되지 않는다). React Flow `fitView` 대신 배율을 직접 계산한다 |
 | v0.2.3 | 2026-09-23 | **단계 7 완료.** §18.2 개정 — `NodeKind`에 쓰지 않는 종류를 미리 넣지 않는다(지금은 `'terminal'` 하나). §18.3을 "추상 레지스트리" 대신 `nodes/nodeRuntime.ts`의 **계약**으로 구체화. §18.4에 v1/v2 두 모양을 함께 읽는 규칙과 모르는 `kind`는 버린다는 규칙 추가. §4.2에 `nodes/nodeRuntime.ts` 추가 |
 | v0.2.4 | 2026-09-25 | **`background` 상태 추가.** 백그라운드 작업을 기다리는 동안 노드가 주황(`입력 대기`)으로 보여 "사람이 할 일이 있다"고 거짓말하던 문제. §8.1에 보라 테두리 + 느린 숨쉬기로 정의하고 unseen·알림·`J` 순회에서 제외. §8.2에 `Stop`의 `background_tasks` 실측 결과와 `resolveState` 규칙 추가 — `StatusWatcher`가 노드별 개수를 기억하고, 유휴 `Notification`을 `background`로 덮는다(`PermissionRequest`는 통과). §4.2에 `scripts/update-app.mjs` 추가 |
+| v0.2.5 | 2026-09-25 | **§16 전면 재측정 (2.1.280).** 실제 transcript 10개를 읽어 §16.1 표를 고쳤다. `file-history`는 `Edit`·`Write`를 거친 변경만 기록하므로 **셸로 고친 파일은 흔적이 없다** — 측정으로 확인(세션 2개는 `Edit`/`Write` 0회, 추적 파일 0개인데 실제로는 파일 30개를 고쳤다). 그래서 §16.2의 1순위를 transcript에서 **git**으로 바꿨다: 결과는 git, 의도는 transcript. §16.1에 `file-history-snapshot`·`continued-in`·`attachment` 실측 구조 추가(모두 초안에 없었다). R20 신설 |
+| v0.2.6 | 2026-09-28 | §16.1에 제목 관련 실측 두 건 추가. (1) `ai-title`은 **세션 시작 시점에 고정된다** — 6055줄 세션에서 288번 모두 같은 문자열("stage 0 scaffold")이었다. (2) 그래서 "가장 최근 프롬프트"로 바꾸려 했으나 실제 프롬프트가 `커밋해`·`머지해`처럼 내용이 없는 경우가 대부분이어서 **되돌렸다**. 길이 기준을 올려도 나아지지 않았고, 7개 중 6개에서 `ai-title`이 더 나은 주제였다. 결론: 제목은 `ai-title`, 낡는 약점은 헤더의 **"지금" 줄**(최근 프롬프트)이 메운다. 사용자가 쓴 제목은 덮지 않는다. (3) `last-prompt`가 턴마다 다시 기록되므로 연속 중복은 하나로 본다. `main/transcript/parse.ts`·`workLog.ts` 추가 |
+| v0.2.7 | 2026-09-28 | §16.1에 **transcript 파일 찾는 방법** 추가. 슬러그 규칙(`[^A-Za-z0-9]` → `-`)은 35개 중 32개만 맞고, 폴더는 **세션 시작 위치**로 정해지므로 `cwd`로 계산하면 조용히 틀린다(어긋난 3건 실측, 두 건은 서로 뒤바뀜). **session id로 폴더 전체를 훑고**(0.7ms), 같은 id가 여럿이면 **가장 최근 수정본**을 쓴다(실측 1건). `main/transcript/TranscriptStore.ts` 추가 — 증분 읽기(바이트 오프셋, 마지막 줄바꿈까지만 소비), 파일이 줄면 재시작, `continued-in` 사슬 추적(최대 8단계, 고리 방지). 실측: 노드 5개 재읽기 합계 **5.2ms** |
+| v0.3.0 | 2026-09-29 | **방향 전환 — 범용화.** 21장 신설(에이전트 추상화). Codex 훅을 tmux 안 대화형으로 **실측**해 Claude Code와 공통 필드가 같음을 확인 → D6을 "에이전트 hooks"로 일반화하고 §2.2에서 "Codex 상태 감지" 비범위를 제거. 차이 셋을 기록: `background_tasks` 없음, `SessionStart`가 **첫 턴**에 발생, `Interrupt` 추가. ⚠️ Codex는 **사용자가 `/hooks`로 훅을 승인**해야 하고 신뢰가 **정의 해시**에 묶인다 → D7 개정, 설정 화면이 2단계를 안내해야 함. 실측 함정 기록(§21.3): 대화형에서 `-c`가 조용히 무시되며 `--no-daemon` 필요. Windows는 **WSL2 전제**로 비범위에서 제외(§21.5). 구현 단계 A·B·C 신설, v2 단계 8~11은 그 뒤로 미룸 |
+| v0.3.1 | 2026-09-29 | 단계 A·B 완료(에이전트 종류 추상화, Codex 훅 설치). §21.6 **순서 개정** — C(Windows)를 미루고 v2 단계 8~11을 먼저 한다. Windows를 나중에 하면 이식을 한 번만 하면 된다. §21.7 신설 — Codex는 격리 환경에서만 검증했고 실사용 확인 3건이 남았다 |

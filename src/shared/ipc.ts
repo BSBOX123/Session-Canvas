@@ -1,5 +1,5 @@
 /** SPEC 10 IPC 계약. 채널 이름과 페이로드 타입은 여기서만 정의한다. */
-import type { NodeId, SessionState, Workspace } from './types'
+import type { AgentKind, NodeId, SessionState, Workspace } from './types'
 
 export const CHANNELS = {
   ptyOpen: 'pty:open',
@@ -97,7 +97,7 @@ export interface StatusChange {
   nodeId: NodeId
   state: SessionState
   at: string
-  claudeSessionId: string | null
+  agentSessionId: string | null
   /** 남은 백그라운드 작업 개수. 이 이벤트로는 알 수 없으면 `null` (SPEC 8.2). */
   backgroundTasks: number | null
 }
@@ -110,14 +110,22 @@ export interface StatusApi {
 
 export type HookInstallState = 'installed' | 'not-installed' | 'outdated'
 
+/** 설치 결과. `needsApproval`이면 사용자가 더 할 일이 있다 (SPEC 21.2). */
+export interface HookInstallResult {
+  backup: string | null
+  /** Codex는 파일을 고쳐도 `/hooks`로 승인해야 훅이 돈다. */
+  needsApproval: boolean
+}
+
 export interface HooksApi {
-  state(): Promise<HookInstallState>
+  state(agent: AgentKind): Promise<HookInstallState>
   /**
-   * ⚠️ `~/.claude/settings.json`을 고친다. 앱 UI에서 사용자 동의를 받은
-   * 뒤에만 부른다 (SPEC 0.4 / 8.4). 원본은 백업된다.
+   * ⚠️ 그 에이전트의 **사용자 전역 설정**을 고친다 (Claude Code는
+   * `~/.claude/settings.json`, Codex는 `~/.codex/hooks.json`). 앱 UI에서
+   * 사용자 동의를 받은 뒤에만 부른다 (SPEC 0.4 / 8.4). 원본은 백업된다.
    */
-  install(): Promise<{ backup: string | null }>
-  uninstall(): Promise<{ backup: string | null }>
+  install(agent: AgentKind): Promise<HookInstallResult>
+  uninstall(agent: AgentKind): Promise<HookInstallResult>
 }
 
 export interface AppApi {

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { HookInstaller } from '../src/main/hooks/HookInstaller'
+import { CLAUDE_HOOK_EVENTS, CODEX_HOOK_EVENTS } from '../src/main/hooks/mergeSettings'
 
 const SOURCE = resolve(__dirname, '../resources/hooks/session-canvas-hook.sh')
 
@@ -17,13 +18,70 @@ beforeEach(async () => {
   home = await mkdtemp(join(tmpdir(), 'session-canvas-installer-'))
   settingsPath = join(home, '.claude', 'settings.json')
   targetPath = join(home, '.session-canvas', 'bin', 'session-canvas-hook.sh')
-  installer = new HookInstaller({ source: SOURCE, target: targetPath, settings: settingsPath })
+  installer = new HookInstaller({
+    source: SOURCE,
+    target: targetPath,
+    settings: settingsPath,
+    events: CLAUDE_HOOK_EVENTS,
+    needsApproval: false
+  })
 })
 
 async function writeSettings(value: string): Promise<void> {
   await mkdir(join(home, '.claude'), { recursive: true })
   await writeFile(settingsPath, value, 'utf8')
 }
+
+// SPEC 21.2 / 21.4 — Codex는 다른 파일을 쓰고 승인이 필요하다.
+describe('HookInstaller — Codex', () => {
+  it('~/.codex/hooks.json에 쓰고 Claude 설정은 건드리지 않는다', async () => {
+    const codexPath = join(home, '.codex', 'hooks.json')
+    const codex = new HookInstaller({
+      source: SOURCE,
+      target: targetPath,
+      settings: codexPath,
+      events: CODEX_HOOK_EVENTS,
+      needsApproval: true
+    })
+    await codex.install()
+
+    const written = JSON.parse(await readFile(codexPath, 'utf8')) as {
+      hooks: Record<string, unknown>
+    }
+    expect(Object.keys(written.hooks).sort()).toEqual([...CODEX_HOOK_EVENTS].sort())
+    // Claude 쪽 파일은 만들어지지도 않아야 한다.
+    await expect(readFile(settingsPath, 'utf8')).rejects.toThrow()
+  })
+
+  it('승인이 필요하다고 알려 준다 (SPEC 21.2)', () => {
+    const codex = new HookInstaller({
+      source: SOURCE,
+      target: targetPath,
+      settings: join(home, '.codex', 'hooks.json'),
+      events: CODEX_HOOK_EVENTS,
+      needsApproval: true
+    })
+    expect(codex.needsApproval).toBe(true)
+    expect(installer.needsApproval).toBe(false)
+  })
+
+  it('두 에이전트가 같은 훅 스크립트를 공유한다 (노드 id는 tmux가 준다)', async () => {
+    const codex = new HookInstaller({
+      source: SOURCE,
+      target: targetPath,
+      settings: join(home, '.codex', 'hooks.json'),
+      events: CODEX_HOOK_EVENTS,
+      needsApproval: true
+    })
+    await installer.install()
+    await codex.install()
+    // 같은 경로를 두 설정이 가리킨다.
+    const claudeJson = await readFile(settingsPath, 'utf8')
+    const codexJson = await readFile(join(home, '.codex', 'hooks.json'), 'utf8')
+    expect(claudeJson).toContain(targetPath)
+    expect(codexJson).toContain(targetPath)
+  })
+})
 
 // SPEC 8.4
 describe('HookInstaller', () => {

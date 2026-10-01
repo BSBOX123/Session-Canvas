@@ -7,9 +7,10 @@
 import { nanoid } from 'nanoid'
 import { create } from 'zustand'
 import type { OrphanSession, StatusChange } from '@shared/ipc'
-import { WORKSPACE_VERSION } from '@shared/types'
+import { agentFromCommand, WORKSPACE_VERSION } from '@shared/types'
 import {
   DEFAULT_SETTINGS,
+  type AgentKind,
   type NodeId,
   type NodeStatus,
   type TerminalNodeData,
@@ -28,6 +29,11 @@ export interface NewNodeInput {
   title: string
   command: string | null
   position: { x: number; y: number }
+  /**
+   * 어떤 에이전트인가 (SPEC 21.4). 주지 않으면 명령에서 추측한다 —
+   * 분리된 세션 복원처럼 명령을 모르는 경로가 있다.
+   */
+  agent?: AgentKind | null
 }
 
 interface WorkspaceState extends Omit<Workspace, 'version'> {
@@ -97,7 +103,8 @@ function makeNode(
       cwd: input.cwd,
       command: input.command,
       tmuxSession: `sc-${id}`,
-      claudeSessionId: null
+      agent: input.agent ?? agentFromCommand(input.command),
+      agentSessionId: null
     }
   }
 }
@@ -218,12 +225,12 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
 
       // SessionStart가 준 세션 id는 저장한다 — [이전 대화 이어서]에 쓴다 (SPEC 5.4).
       if (
-        change.claudeSessionId !== null &&
-        node.terminal.claudeSessionId !== change.claudeSessionId
+        change.agentSessionId !== null &&
+        node.terminal.agentSessionId !== change.agentSessionId
       ) {
         next.nodes = state.nodes.map((n) =>
           n.id === change.nodeId
-            ? { ...n, terminal: { ...n.terminal, claudeSessionId: change.claudeSessionId } }
+            ? { ...n, terminal: { ...n.terminal, agentSessionId: change.agentSessionId } }
             : n
         )
       }

@@ -38,9 +38,9 @@ const api: Api = {
     setKnownNodes: (ids) => ipcRenderer.send(CHANNELS.statusSetKnownNodes, ids)
   },
   hooks: {
-    state: () => ipcRenderer.invoke(CHANNELS.hooksState),
-    install: () => ipcRenderer.invoke(CHANNELS.hooksInstall),
-    uninstall: () => ipcRenderer.invoke(CHANNELS.hooksUninstall)
+    state: (agent) => ipcRenderer.invoke(CHANNELS.hooksState, agent),
+    install: (agent) => ipcRenderer.invoke(CHANNELS.hooksInstall, agent),
+    uninstall: (agent) => ipcRenderer.invoke(CHANNELS.hooksUninstall, agent)
   },
   app: {
     setBadge: (n) => ipcRenderer.send(CHANNELS.appSetBadge, n),

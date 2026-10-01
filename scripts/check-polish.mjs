@@ -5,7 +5,7 @@
  *   - 헤더에 `경로 · 브랜치`가 뜨는지 (SPEC 7.1)
  *   - 색 라벨이 헤더 좌측 띠로 붙는지 (SPEC 7.1)
  *   - 설정의 글자 크기·폰트가 살아 있는 터미널에 반영되는지 (SPEC 9.1)
- *   - `claudeSessionId`가 있을 때만 [이전 대화 이어서]가 보이는지 (SPEC 5.4)
+ *   - `agentSessionId`가 있을 때만 [이전 대화 이어서]가 보이는지 (SPEC 5.4)
  *
  * 패키징 확인(SPEC 4.4)은 여기서 못 한다 — Finder에서 직접 실행해야 한다.
  *
@@ -157,16 +157,39 @@ try {
   )
   reporter.check('노드 모서리가 둥글다', Number.parseInt(idle.radius, 10) >= 14, idle.radius)
 
+  /**
+   * 상태를 넣고 **테두리가 그 상태의 클래스로 바뀔 때까지** 기다린다.
+   *
+   * 고정 시간(350ms)만 기다리면 앱이 바쁠 때(터미널 기동 중) `transition:
+   * border-color 160ms`가 끝나기 전에 읽어서 이전 색이 잡힌다. 실제로 그 때문에
+   * `작업 중`이 흰색으로 읽히는 실패가 간헐적으로 났다.
+   */
+  const rgb = (color) => (/rgba?\((\d+), (\d+), (\d+)/.exec(color) ?? []).slice(1).map(Number)
+
   const apply = async (state) => {
     await evaluate(`(window.__sessionCanvas.applyStatus({
       nodeId: ${JSON.stringify(nodeId)},
       state: ${JSON.stringify(state)},
       at: new Date().toISOString(),
-      claudeSessionId: null,
+      agentSessionId: null,
       backgroundTasks: null
     }), 1)`)
-    await sleep(350)
-    return borderOf()
+    const deadline = Date.now() + 5000
+    let border = await borderOf()
+    while (!border.classes.includes(`state-${state}`) && Date.now() < deadline) {
+      await sleep(100)
+      border = await borderOf()
+    }
+    // 클래스가 붙은 뒤에도 transition이 남아 있다. 색이 멈출 때까지 본다.
+    let previous = border.color
+    for (let i = 0; i < 20; i += 1) {
+      await sleep(80)
+      border = await borderOf()
+      // 깜빡이는 상태는 영원히 변하므로 애니메이션이 있으면 기다리지 않는다.
+      if (border.animation !== 'none' || border.color === previous) break
+      previous = border.color
+    }
+    return border
   }
 
   const working = await apply('working')
@@ -178,8 +201,6 @@ try {
 
   // 깜빡이는 동안에는 테두리 색이 두 값 사이를 오간다. 정확한 값 대신
   // 색 계열로 본다.
-  const rgb = (color) => (/rgba?\((\d+), (\d+), (\d+)/.exec(color) ?? []).slice(1).map(Number)
-
   const waiting = await apply('waiting')
   const [wr, wg, wb] = rgb(waiting.color)
   reporter.check(
@@ -240,16 +261,24 @@ try {
   // 상태 색은 테마와 무관하게 유지되어야 한다.
   const afterThemeBorder = await borderOf()
   // SPEC 8.1 — 백그라운드는 주황(입력 대기)과 확실히 달라야 한다.
+  //
+  // ⚠️ 이것도 깜빡이므로 **정확한 색을 단언하지 않는다.** `#b18cff`와 `#cdb4ff`
+  // 사이를 오가서 중간값(예: 181,145,255)이 잡힌다. 보라 계열인지로 본다.
   const background = await apply('background')
+  const [br, bg2, bb] = rgb(background.color)
   reporter.check(
     '백그라운드 → 보라 테두리 + 느린 숨쉬기 (SPEC 8.1)',
-    background.color === 'rgb(177, 140, 255)' && background.animation === 'status-pulse-background',
+    bb > 240 &&
+      br > 150 &&
+      bb > br &&
+      br > bg2 &&
+      background.animation === 'status-pulse-background',
     `${background.color}, 애니메이션=${background.animation}`
   )
   reporter.check(
-    '백그라운드는 입력 대기와 다른 색이다',
-    background.color !== 'rgb(255, 157, 60)' && background.color !== 'rgb(255, 180, 101)',
-    background.color
+    '백그라운드는 입력 대기(주황)와 계열이 다르다',
+    bb > br,
+    `파랑 ${bb} > 빨강 ${br} (주황이면 반대다)`
   )
 
   reporter.check(
@@ -273,23 +302,42 @@ try {
     )
   }))()`)
   reporter.check(
-    'claudeSessionId가 없으면 [새로 시작]만 보인다 (SPEC 5.4)',
+    'agentSessionId가 없으면 [새로 시작]만 보인다 (SPEC 5.4)',
     withoutSessionId.panel && !withoutSessionId.resume,
     `패널=${withoutSessionId.panel}, 이어서 버튼=${withoutSessionId.resume}`
   )
 
   // v2에서 터미널 고유 필드는 `terminal` 페이로드 안에 있다 (SPEC 18.2). `updateNode`는
   // 얕은 병합이라 페이로드를 통째로 넘겨야 cwd·tmuxSession이 날아가지 않는다.
-  await bridge(`updateTerminal(${JSON.stringify(nodeId)}, { claudeSessionId: 'sess-abc-123' })`)
+  //
+  // `agent`도 함께 준다 — 세션 id만 있고 어떤 에이전트인지 모르면 무엇으로 이어야
+  // 할지 알 수 없으므로 버튼이 뜨지 않는다 (SPEC 21.4). 이 노드는 `command: null`로
+  // 만들어서 agent가 추측되지 않는다.
+  await bridge(
+    `updateTerminal(${JSON.stringify(nodeId)}, { agentSessionId: 'sess-abc-123', agent: 'claude' })`
+  )
   await sleep(500)
   const withSessionId = await evaluate(`(() =>
     [...document.querySelectorAll('.detached-button')].some((b) =>
       b.textContent.includes('이전 대화')
     ))()`)
   reporter.check(
-    'claudeSessionId가 있으면 [이전 대화 이어서]가 보인다 (SPEC 5.4)',
+    'agentSessionId가 있으면 [이전 대화 이어서]가 보인다 (SPEC 5.4)',
     withSessionId === true,
     `이어서 버튼=${withSessionId}`
+  )
+
+  // SPEC 21.4 — 세션 id가 있어도 에이전트를 모르면 이어서 실행할 수 없다.
+  await bridge(`updateTerminal(${JSON.stringify(nodeId)}, { agent: null })`)
+  await sleep(400)
+  const withoutAgent = await evaluate(`(() =>
+    [...document.querySelectorAll('.detached-button')].some((b) =>
+      b.textContent.includes('이전 대화')
+    ))()`)
+  reporter.check(
+    '에이전트를 모르면 [이전 대화 이어서]가 숨는다 (SPEC 21.4)',
+    withoutAgent === false,
+    `이어서 버튼=${withoutAgent}`
   )
 
   client.close()

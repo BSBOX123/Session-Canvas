@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { WorkspaceStore } from '../src/main/workspace/WorkspaceStore'
 import { emptyWorkspace, parseWorkspace, serializeWorkspace } from '../src/main/workspace/serialize'
+import { WORKSPACE_VERSION, type TerminalPayload } from '../src/shared/types'
 import type { TerminalNodeData, Workspace } from '../src/shared/types'
 
 function node(id: string): TerminalNodeData {
@@ -25,7 +26,8 @@ function node(id: string): TerminalNodeData {
       cwd: '/Users/me/내 프로젝트',
       command: 'claude',
       tmuxSession: `sc-${id}`,
-      claudeSessionId: null
+      agent: 'claude',
+      agentSessionId: null
     }
   }
 }
@@ -39,7 +41,7 @@ function v1Node(id: string): Record<string, unknown> {
     cwd: '/Users/me/오래된 프로젝트',
     command: 'claude --resume abc',
     tmuxSession: `sc-${id}`,
-    claudeSessionId: 'sess-old',
+    agentSessionId: 'sess-old',
     position: { x: 11, y: 22 },
     size: { width: 800, height: 600 },
     color: '#c96f6f',
@@ -129,12 +131,12 @@ describe('serialize (SPEC 9.2)', () => {
   })
 
   // SPEC 18.4 — v1은 노드가 전부 터미널이고 필드가 평평했다.
-  it('v1 파일을 손실 없이 v2로 올려 읽는다', () => {
+  it('v1 파일을 손실 없이 최신 버전으로 올려 읽는다', () => {
     const parsed = parseWorkspace(JSON.stringify({ version: 1, nodes: [v1Node('oldNode123')] }))
     expect(parsed.status).toBe('ok')
     if (parsed.status !== 'ok') return
 
-    expect(parsed.workspace.version).toBe(2)
+    expect(parsed.workspace.version).toBe(WORKSPACE_VERSION)
     const [migrated] = parsed.workspace.nodes
     expect(migrated.kind).toBe('terminal')
     // 공통 필드는 그대로
@@ -149,13 +151,82 @@ describe('serialize (SPEC 9.2)', () => {
       cwd: '/Users/me/오래된 프로젝트',
       command: 'claude --resume abc',
       tmuxSession: 'sc-oldNode123',
-      claudeSessionId: 'sess-old'
+      // v1·v2에 없던 필드. 명령에서 추측한다 (SPEC 21.4).
+      agent: 'claude',
+      agentSessionId: 'sess-old'
     })
     // v1에 없던 필드는 기본값
     expect(migrated.z).toBe(0)
     expect(migrated.parentId).toBeNull()
     expect(migrated.locked).toBe(false)
     expect(migrated.hidden).toBe(false)
+  })
+
+  // SPEC 21.4 — v2는 `agent`가 없고 세션 id 이름이 `claudeSessionId`였다.
+  describe('v2 → v3 (SPEC 21.4)', () => {
+    const v2Node = (terminal: Record<string, unknown>): Record<string, unknown> => ({
+      id: 'v2Node0001',
+      kind: 'terminal',
+      title: '',
+      description: '',
+      position: { x: 0, y: 0 },
+      size: { width: 640, height: 420 },
+      z: 0,
+      parentId: null,
+      color: null,
+      locked: false,
+      hidden: false,
+      createdAt: '2026-09-20T00:00:00.000Z',
+      updatedAt: '2026-09-20T00:00:00.000Z',
+      terminal
+    })
+
+    const parseOne = (terminal: Record<string, unknown>): TerminalPayload => {
+      const parsed = parseWorkspace(JSON.stringify({ version: 2, nodes: [v2Node(terminal)] }))
+      if (parsed.status !== 'ok') throw new Error(`파싱 실패: ${parsed.status}`)
+      return parsed.workspace.nodes[0].terminal
+    }
+
+    it('claudeSessionId를 agentSessionId로 옮긴다', () => {
+      const t = parseOne({
+        cwd: '/Users/me/x',
+        command: 'claude',
+        tmuxSession: 'sc-v2Node0001',
+        claudeSessionId: 'sess-v2'
+      })
+      expect(t.agentSessionId).toBe('sess-v2')
+    })
+
+    it('명령에서 에이전트를 추측한다', () => {
+      expect(parseOne({ cwd: '/x', command: 'claude' }).agent).toBe('claude')
+      expect(parseOne({ cwd: '/x', command: 'claude --resume abc' }).agent).toBe('claude')
+      expect(parseOne({ cwd: '/x', command: 'codex' }).agent).toBe('codex')
+      expect(parseOne({ cwd: '/x', command: 'codex resume abc' }).agent).toBe('codex')
+      expect(parseOne({ cwd: '/x', command: '/opt/homebrew/bin/codex' }).agent).toBe('codex')
+    })
+
+    it('에이전트가 아닌 명령은 null이다 — 상태·이어서를 기대하지 않는다', () => {
+      expect(parseOne({ cwd: '/x', command: 'vim' }).agent).toBeNull()
+      expect(parseOne({ cwd: '/x', command: null }).agent).toBeNull()
+      expect(parseOne({ cwd: '/x' }).agent).toBeNull()
+    })
+
+    it('v3 파일의 agent는 그대로 쓴다 (추측하지 않는다)', () => {
+      // 명령이 vim인데 agent가 codex로 적혀 있으면 적힌 것을 믿는다.
+      const parsed = parseWorkspace(
+        JSON.stringify({
+          version: 3,
+          nodes: [v2Node({ cwd: '/x', command: 'vim', agent: 'codex' })]
+        })
+      )
+      if (parsed.status !== 'ok') throw new Error('파싱 실패')
+      expect(parsed.workspace.nodes[0].terminal.agent).toBe('codex')
+    })
+
+    it('모르는 agent 값은 버리고 명령에서 추측한다', () => {
+      expect(parseOne({ cwd: '/x', command: 'codex', agent: '미래에이전트' }).agent).toBe('codex')
+      expect(parseOne({ cwd: '/x', command: 'claude', agent: 42 }).agent).toBe('claude')
+    })
   })
 
   it('v1 노드도 id 패턴 검사를 똑같이 받는다', () => {

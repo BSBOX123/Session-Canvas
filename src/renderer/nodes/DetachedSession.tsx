@@ -1,9 +1,9 @@
-import type { TerminalNodeData } from '@shared/types'
+import { resumeCommand, type TerminalNodeData } from '@shared/types'
 
 interface DetachedSessionProps {
   node: TerminalNodeData
   onStart(): void
-  /** 이전 Claude Code 대화를 이어서 시작한다 (SPEC 5.4). */
+  /** 이전 대화를 이어서 시작한다 (SPEC 5.4 / 21.4). */
   onResume(): void
 }
 
@@ -11,7 +11,7 @@ interface DetachedSessionProps {
  * 워크스페이스에는 있는데 tmux 세션이 없는 노드 (SPEC 5.4).
  * 재부팅 등으로 tmux 서버가 사라졌을 때다.
  *
- * [이전 대화 이어서]는 `claudeSessionId`가 있을 때만 보여 준다. 그 값은
+ * [이전 대화 이어서]는 `agentSessionId`가 있을 때만 보여 준다. 그 값은
  * `SessionStart` 훅이 채우므로(SPEC 8.2), 상태 감지를 켜 두지 않았거나 그
  * 노드에서 Claude Code를 쓴 적이 없으면 [새로 시작]만 나온다.
  */
@@ -28,12 +28,12 @@ function DetachedSession({ node, onStart, onResume }: DetachedSessionProps): Rea
         <button type="button" className="detached-button" onClick={onStart}>
           새로 시작
         </button>
-        {node.terminal.claudeSessionId !== null && (
+        {node.terminal.agentSessionId !== null && node.terminal.agent !== null && (
           <button
             type="button"
             className="detached-button secondary"
             onClick={onResume}
-            title={`claude --resume ${node.terminal.claudeSessionId}`}
+            title={resumeCommand(node.terminal.agent, node.terminal.agentSessionId)}
           >
             이전 대화 이어서
           </button>

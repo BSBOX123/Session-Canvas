@@ -40,12 +40,42 @@ export interface BaseNodeData {
   updatedAt: string
 }
 
+/**
+ * 노드에서 도는 에이전트 CLI (SPEC 21).
+ *
+ * `null`은 **에이전트가 아니다** — 그냥 셸이거나 `vim` 같은 다른 명령이다.
+ * 그 노드에는 상태 배지·이어서 실행·작업 기록을 기대하지 않는다.
+ */
+export type AgentKind = 'claude' | 'codex'
+
 /** 터미널 노드만 갖는 것 (SPEC 18.2). */
 export interface TerminalPayload {
   cwd: string // 절대경로
-  command: string | null // 기본 "claude", null이면 셸만
+  command: string | null // null이면 셸만
   tmuxSession: string // `sc-${id}`
-  claudeSessionId: string | null
+  /** 어떤 에이전트인가 (SPEC 21.4). 이어서 실행·훅 해석이 달라진다. */
+  agent: AgentKind | null
+  /**
+   * 에이전트가 알려 준 세션 id. 이어서 실행에 쓴다 (SPEC 5.4 / 21.4).
+   *
+   * v2까지 `agentSessionId`였다. Codex 세션 id도 담게 되어 이름을 고쳤다.
+   */
+  agentSessionId: string | null
+}
+
+/** 이어서 실행 명령 (SPEC 21.4). 에이전트마다 다르다. */
+export function resumeCommand(agent: AgentKind, sessionId: string): string {
+  return agent === 'codex' ? `codex resume ${sessionId}` : `claude --resume ${sessionId}`
+}
+
+/** 명령 문자열에서 에이전트를 추측한다. v2 파일 마이그레이션과 대화상자 기본값에 쓴다. */
+export function agentFromCommand(command: string | null): AgentKind | null {
+  if (command === null) return null
+  const first = command.trim().split(/\s+/)[0] ?? ''
+  const name = first.slice(first.lastIndexOf('/') + 1)
+  if (name === 'claude') return 'claude'
+  if (name === 'codex') return 'codex'
+  return null
 }
 
 export type TerminalNodeData = BaseNodeData & {
@@ -76,7 +106,7 @@ export interface WorkspaceSettings {
 }
 
 /** 저장 포맷 버전 (SPEC 9.2 / 18.4). */
-export const WORKSPACE_VERSION = 2
+export const WORKSPACE_VERSION = 3
 
 export interface Workspace {
   version: typeof WORKSPACE_VERSION

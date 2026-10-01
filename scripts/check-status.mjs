@@ -147,7 +147,7 @@ try {
     if (status && seen.at(-1)?.state !== status.state) seen.push(status)
     const node = await nodeOf()
     // v2에서 터미널 고유 필드는 `terminal` 페이로드 안에 있다 (SPEC 18.2).
-    if (node?.terminal?.claudeSessionId) sessionId = node.terminal.claudeSessionId
+    if (node?.terminal?.agentSessionId) sessionId = node.terminal.agentSessionId
     return status
   }
   const until = async (predicate, label, timeoutMs) => {
@@ -164,18 +164,31 @@ try {
   // 대화형으로 띄워야 프롬프트가 남아 있고, 그게 실제 사용 모습이다.
   await write('claude\r')
 
-  // 새 폴더에서는 "이 폴더를 신뢰합니까?"가 먼저 뜨고 **기본값이 "No, exit"** 다.
+  // 새 폴더에서는 신뢰 확인이 먼저 뜨고 **기본값이 "No, exit"** 다.
   // 그대로 두면 Claude Code가 켜지지도 않는다.
+  //
+  // ⚠️ **문구는 버전마다 바뀐다.** 2.1.280에서는 질문에 "trust this folder"가
+  // 있었지만 2.1.283은 "Quick safety check: Is this a project you created or one
+  // you trust?"로 바뀌었고, 그 문구는 **선택지**에만 남았다. 그래서 여러 표현을
+  // 함께 본다.
+  //
+  // ⚠️ 그리고 "시작됨" 판정에 `/Claude Code/`를 쓰면 안 된다 — **신뢰 화면
+  // 자체에** "Claude Code'll be able to read, edit, and execute files here."가
+  // 들어 있어서, 선택지가 그려지기 전에 폴링하면 신뢰 화면을 시작으로 오판하고
+  // 답하지 않은 채 빠져나온다. 실제로 그 때문에 점검이 타임아웃됐다.
+  const TRUST = /trust (this folder|the files)|Quick safety check|No, exit/i
+  // 프롬프트 입력줄이 보이면 진짜로 켜진 것이다.
+  const STARTED = /for shortcuts|auto mode on|Try "how does/i
   const trustDeadline = Date.now() + 60_000
   for (;;) {
     const text = await bufferText()
-    if (/trust this folder/i.test(text)) {
+    if (TRUST.test(text)) {
       await write('\u001b[B') // 아래 화살표: "Yes, I trust this folder"
       await sleep(400)
       await write('\r')
       break
     }
-    if (seen.length > 0 || /Claude Code/.test(text)) break
+    if (seen.length > 0 || STARTED.test(text)) break
     if (Date.now() > trustDeadline) break
     await poll()
     await sleep(500)
@@ -186,7 +199,19 @@ try {
     'Claude Code 시작',
     90_000
   )
-  if (!started) throw new Error('타임아웃: Claude Code가 시작되지 않았습니다')
+  if (!started) {
+    // 왜 안 떴는지 알 수 있게 화면을 그대로 남긴다. 추측으로 고치지 않기 위해서다.
+    const dump = await bufferText()
+    console.error('\n--- 실패 시점 노드 화면 ---')
+    console.error(
+      dump
+        .split('\n')
+        .filter((l) => l.trim().length > 0)
+        .join('\n')
+    )
+    console.error('--- 관측된 상태: ' + JSON.stringify(seen.map((x) => x.state)) + ' ---\n')
+    throw new Error('타임아웃: Claude Code가 시작되지 않았습니다')
+  }
   await sleep(3000)
 
   await write('Run the bash command: echo SC_STATUS_OK')
