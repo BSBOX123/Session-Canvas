@@ -61,6 +61,16 @@ export interface TerminalPayload {
    * v2까지 `agentSessionId`였다. Codex 세션 id도 담게 되어 이름을 고쳤다.
    */
   agentSessionId: string | null
+  /**
+   * 에이전트가 알려 준 transcript 파일 경로 (SPEC 16.1 / 21.4).
+   *
+   * 훅이 매 이벤트에 실어 주는 것을 저장한다. **경로를 계산하지 않는 이유**:
+   * Claude Code와 Codex의 경로 구조가 전혀 다르고, Claude Code 쪽은 폴더가
+   * 세션 **시작 위치**로 정해져서 `cwd`로 계산하면 조용히 틀린다(§16.1 실측).
+   *
+   * 아직 훅 이벤트를 한 번도 받지 않은 노드는 `null`이다.
+   */
+  transcriptPath: string | null
 }
 
 /** 이어서 실행 명령 (SPEC 21.4). 에이전트마다 다르다. */

@@ -55,6 +55,9 @@ const api: Api = {
   git: {
     branch: (cwd) => ipcRenderer.invoke(CHANNELS.gitBranch, cwd)
   },
+  workLog: {
+    get: (req) => ipcRenderer.invoke(CHANNELS.workLogGet, req)
+  },
   dialog: {
     pickDirectory: () => ipcRenderer.invoke(CHANNELS.dialogPickDirectory)
   }

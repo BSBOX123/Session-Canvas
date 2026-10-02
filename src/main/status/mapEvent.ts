@@ -30,6 +30,15 @@ export interface MappedEvent {
    * 렌더러로는 넘기지 않는다. 훅 어휘는 main에 둔다 (SPEC 8.2).
    */
   event: string
+  /**
+   * 에이전트가 알려 준 transcript 파일 경로 (SPEC 16.1 / 21.4).
+   *
+   * **모든 이벤트에 들어 있다**(두 에이전트 실측). 경로를 계산하거나 찾지 않고
+   * 이것을 저장해 쓴다 — Claude Code는 `~/.claude/projects/<슬러그>/<id>.jsonl`,
+   * Codex는 `~/.codex/sessions/<Y>/<M>/<D>/rollout-<시각>-<id>.jsonl`로
+   * **구조가 전혀 다르다.**
+   */
+  transcriptPath: string | null
 }
 
 /**
@@ -73,6 +82,10 @@ export function mapEvent(raw: string): MappedEvent | null {
 
   const event = payload.hook_event_name
   if (typeof event !== 'string') return null
+  const transcriptPath =
+    typeof payload.transcript_path === 'string' && payload.transcript_path.length > 0
+      ? payload.transcript_path
+      : null
 
   switch (event) {
     case 'SessionStart': {
@@ -82,20 +95,39 @@ export function mapEvent(raw: string): MappedEvent | null {
         state: 'unknown',
         agentSessionId: typeof id === 'string' ? id : null,
         backgroundTasks: 0,
-        event
+        event,
+        transcriptPath
       }
     }
     case 'UserPromptSubmit':
     case 'PreToolUse':
     case 'PostToolUse':
-      return { state: 'working', agentSessionId: null, backgroundTasks: null, event }
+      return {
+        state: 'working',
+        agentSessionId: null,
+        backgroundTasks: null,
+        event,
+        transcriptPath
+      }
     case 'PermissionRequest':
-      return { state: 'waiting', agentSessionId: null, backgroundTasks: null, event }
+      return {
+        state: 'waiting',
+        agentSessionId: null,
+        backgroundTasks: null,
+        event,
+        transcriptPath
+      }
     case 'Notification': {
       const state = mapNotification(payload)
       return state === null
         ? null
-        : { state, agentSessionId: null, backgroundTasks: backgroundTaskCount(payload), event }
+        : {
+            state,
+            agentSessionId: null,
+            backgroundTasks: backgroundTaskCount(payload),
+            event,
+            transcriptPath
+          }
     }
     case 'Stop':
     case 'StopFailure': {
@@ -106,15 +138,22 @@ export function mapEvent(raw: string): MappedEvent | null {
         state: pending !== null && pending > 0 ? 'background' : 'done',
         agentSessionId: null,
         backgroundTasks: pending,
-        event
+        event,
+        transcriptPath
       }
     }
     case 'Interrupt':
       // Codex에만 있다 (SPEC 21.1). 사용자가 직접 중단한 것이므로 이미 알고 있다 —
       // `done`으로 두면 확인하라고 깜빡여서 거짓 신호가 된다.
-      return { state: 'unknown', agentSessionId: null, backgroundTasks: null, event }
+      return {
+        state: 'unknown',
+        agentSessionId: null,
+        backgroundTasks: null,
+        event,
+        transcriptPath
+      }
     case 'SessionEnd':
-      return { state: 'unknown', agentSessionId: null, backgroundTasks: 0, event }
+      return { state: 'unknown', agentSessionId: null, backgroundTasks: 0, event, transcriptPath }
     default:
       return null
   }

@@ -17,7 +17,8 @@ describe('mapEvent', () => {
       state: 'unknown',
       agentSessionId: 'sess-123',
       backgroundTasks: 0,
-      event: 'SessionStart'
+      event: 'SessionStart',
+      transcriptPath: '/tmp/t.jsonl'
     })
   })
 
@@ -26,7 +27,8 @@ describe('mapEvent', () => {
       state: 'working',
       agentSessionId: null,
       backgroundTasks: null,
-      event: name
+      event: name,
+      transcriptPath: '/tmp/t.jsonl'
     })
   })
 
@@ -35,7 +37,8 @@ describe('mapEvent', () => {
       state: 'waiting',
       agentSessionId: null,
       backgroundTasks: null,
-      event: 'PermissionRequest'
+      event: 'PermissionRequest',
+      transcriptPath: '/tmp/t.jsonl'
     })
   })
 
@@ -44,7 +47,8 @@ describe('mapEvent', () => {
       state: 'done',
       agentSessionId: null,
       backgroundTasks: 0,
-      event: name
+      event: name,
+      transcriptPath: '/tmp/t.jsonl'
     })
   })
 
@@ -56,7 +60,8 @@ describe('mapEvent', () => {
         state: 'background',
         agentSessionId: null,
         backgroundTasks: 1,
-        event: name
+        event: name,
+        transcriptPath: '/tmp/t.jsonl'
       })
     }
   )
@@ -67,7 +72,8 @@ describe('mapEvent', () => {
       state: 'done',
       agentSessionId: null,
       backgroundTasks: null,
-      event: 'Stop'
+      event: 'Stop',
+      transcriptPath: '/tmp/t.jsonl'
     })
   })
 
@@ -76,7 +82,8 @@ describe('mapEvent', () => {
       state: 'unknown',
       agentSessionId: null,
       backgroundTasks: 0,
-      event: 'SessionEnd'
+      event: 'SessionEnd',
+      transcriptPath: '/tmp/t.jsonl'
     })
   })
 
@@ -125,7 +132,8 @@ describe('mapEvent', () => {
         state: 'unknown',
         agentSessionId: null,
         backgroundTasks: 0,
-        event: 'SessionStart'
+        event: 'SessionStart',
+        transcriptPath: null
       })
     })
   })

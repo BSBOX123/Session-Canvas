@@ -19,6 +19,8 @@ export interface StatusChange {
   agentSessionId: string | null
   /** 남은 백그라운드 작업 개수. 이 이벤트로는 알 수 없으면 `null` (SPEC 8.2). */
   backgroundTasks: number | null
+  /** 에이전트가 알려 준 transcript 경로 (SPEC 16.1). 경로를 계산하지 않는다. */
+  transcriptPath: string | null
 }
 
 export class StatusWatcher {
@@ -143,7 +145,8 @@ export class StatusWatcher {
       state: resolveState(mapped, pending),
       at: new Date().toISOString(),
       agentSessionId: mapped.agentSessionId,
-      backgroundTasks: mapped.backgroundTasks
+      backgroundTasks: mapped.backgroundTasks,
+      transcriptPath: mapped.transcriptPath
     })
   }
 }

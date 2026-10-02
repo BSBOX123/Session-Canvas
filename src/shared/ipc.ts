@@ -26,7 +26,8 @@ export const CHANNELS = {
   appSetNotifications: 'app:setNotifications',
   clipboardRead: 'clipboard:read',
   clipboardWrite: 'clipboard:write',
-  gitBranch: 'git:branch'
+  gitBranch: 'git:branch',
+  workLogGet: 'workLog:get'
 } as const
 
 /**
@@ -100,6 +101,8 @@ export interface StatusChange {
   agentSessionId: string | null
   /** 남은 백그라운드 작업 개수. 이 이벤트로는 알 수 없으면 `null` (SPEC 8.2). */
   backgroundTasks: number | null
+  /** 에이전트가 알려 준 transcript 경로 (SPEC 16.1). 경로를 계산하지 않는다. */
+  transcriptPath: string | null
 }
 
 export interface StatusApi {
@@ -151,6 +154,63 @@ export interface GitApi {
   branch(cwd: string): Promise<string | null>
 }
 
+/**
+ * 노드 하나의 작업 기록 (SPEC 16 / 19 단계 8).
+ *
+ * **의도는 transcript, 결과는 git**이다 (SPEC 16.2). 둘을 한 번에 돌려줘서
+ * 렌더러가 두 번 묻지 않게 한다.
+ */
+export interface WorkLogView {
+  /** 세션 시작 시 주제. 빈 제목을 채우는 데 쓴다. 없으면 null (SPEC 16.1). */
+  title: string | null
+  /** "지금 무엇을 하는 중인가" — 가장 최근 프롬프트 한 줄. */
+  activity: string | null
+  /** 최근이 앞. 시킨 것과 한 것이 섞여 시간순으로 온다. */
+  timeline: WorkLogEntry[]
+  /** 도구별 호출 횟수 (전체 누적). */
+  toolCounts: Record<string, number>
+  /** git이 본 변경. 저장소가 아니면 `root`가 null이다 (SPEC 16.2). */
+  changes: { root: string | null; files: ChangedFileView[]; truncated: boolean }
+  /**
+   * transcript를 못 읽었는가. 기록이 **없는 것**과 **못 읽은 것**은 다르다 —
+   * UI가 구별해서 보여 줘야 한다 (SPEC 16.3).
+   */
+  transcriptMissing: boolean
+}
+
+export interface WorkLogEntry {
+  kind: 'prompt' | 'tool'
+  at: string | null
+  /** 프롬프트면 첫 줄, 도구면 도구 이름. */
+  text: string
+  /** 도구일 때만. 무엇에 썼는지 한 줄 요약 (파일 경로나 명령 앞부분). */
+  detail: string | null
+}
+
+export interface ChangedFileView {
+  path: string
+  kind: 'added' | 'modified' | 'deleted' | 'renamed' | 'untracked'
+}
+
+/**
+ * 작업 기록 요청 (SPEC 10).
+ *
+ * **renderer가 노드 값을 실어 보낸다.** main의 `WorkspaceStore`는 지연 저장이라
+ * 최신이 아닐 수 있다 — 첫 변화가 있을 때까지 디스크에 안 써진다(HANDOVER 8-4).
+ * 그걸 읽으면 조용히 낡은 경로를 쓰게 된다.
+ */
+export interface WorkLogRequest {
+  nodeId: NodeId
+  cwd: string
+  agentSessionId: string | null
+  transcriptPath: string | null
+}
+
+export interface WorkLogApi {
+  /** 그 노드의 작업 기록. 값이 잘못되면 null. */
+  get(req: WorkLogRequest): Promise<WorkLogView | null>
+}
+
 export interface DialogApi {
   /** 디렉터리 선택 창. 취소하면 null (SPEC 7.2). */
   pickDirectory(): Promise<string | null>
@@ -165,5 +225,6 @@ export interface Api {
   app: AppApi
   clipboard: ClipboardApi
   git: GitApi
+  workLog: WorkLogApi
   dialog: DialogApi
 }
