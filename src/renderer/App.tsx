@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import Canvas from './canvas/Canvas'
+import WorkLogPanel from './worklog/WorkLogPanel'
 import { startPersistence, useWorkspace } from './state/workspace'
 import { startStatusBridge } from './state/statusBridge'
 
@@ -12,6 +13,8 @@ type BootState =
  */
 function App(): React.JSX.Element {
   const [boot, setBoot] = useState<BootState>({ phase: 'loading' })
+  // 패널 열림은 화면 상태일 뿐이라 워크스페이스에 저장하지 않는다 (SPEC 9.1).
+  const [panelOpen, setPanelOpen] = useState(false)
   const hydrate = useWorkspace((s) => s.hydrate)
   const setMissingSessions = useWorkspace((s) => s.setMissingSessions)
   const setOrphans = useWorkspace((s) => s.setOrphans)
@@ -75,8 +78,20 @@ function App(): React.JSX.Element {
   }
 
   return (
-    <div className="app">
+    <div className={`app${panelOpen ? ' with-panel' : ''}`}>
       <Canvas />
+      {panelOpen ? (
+        <WorkLogPanel onClose={() => setPanelOpen(false)} />
+      ) : (
+        <button
+          type="button"
+          className="worklog-open"
+          onClick={() => setPanelOpen(true)}
+          title="작업 기록 보기"
+        >
+          작업 기록
+        </button>
+      )}
     </div>
   )
 }

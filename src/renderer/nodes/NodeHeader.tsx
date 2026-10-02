@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { SessionState, TerminalNodeData } from '@shared/types'
 import { useWorkspace } from '../state/workspace'
+import { useWorkLog } from '../state/workLog'
 import { displayTitle } from './displayTitle'
 import { presentStatus } from './statusPresentation'
 import NodeLocation from './NodeLocation'
@@ -35,6 +36,8 @@ function NodeHeader({
   onKill
 }: NodeHeaderProps): React.JSX.Element {
   const updateNode = useWorkspace((s) => s.updateNode)
+  // 패널이 읽어 둔 것을 그대로 쓴다 — 헤더가 따로 읽지 않는다.
+  const activity = useWorkLog((s) => s.views[node.id]?.activity ?? null)
   const [editingTitle, setEditingTitle] = useState(false)
   const [confirmingClose, setConfirmingClose] = useState(false)
   const [pickingColor, setPickingColor] = useState(false)
@@ -174,6 +177,16 @@ function NodeHeader({
 
         <NodeLocation node={node} active={focused} />
       </div>
+      {/*
+        "지금" 줄 (SPEC 19 단계 8 / 21.4). 제목은 `ai-title`이라 세션 시작
+        시점에 고정되어 낡는다 — 이 줄이 현재를 가리켜 그 약점을 메운다.
+        읽지 못했거나 아직 없으면 줄 자체를 띄우지 않는다.
+      */}
+      {activity !== null && (
+        <div className="node-now" title={activity}>
+          {activity}
+        </div>
+      )}
     </div>
   )
 }
