@@ -75,7 +75,8 @@ describe('상태 전이 (SPEC 8.1)', () => {
       state,
       at: new Date().toISOString(),
       agentSessionId,
-      backgroundTasks: null
+      backgroundTasks: null,
+      transcriptPath: null
     })
   }
 

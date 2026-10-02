@@ -130,6 +130,7 @@ session-canvas/
 │  ├─ lib/cdp.mjs                    # CDP 점검 공용 도구 (14.3)
 │  ├─ dev-isolated.mjs               # 격리 개발 모드 (14.2)
 │  ├─ update-app.mjs                 # 패키징 앱에 코드 반영 (4.3)
+│  ├─ check-worklog.mjs              # 작업 기록 확인 (14.3)
 │  ├─ inspect-renderer.mjs           # 렌더러 스모크 확인 (14.3)
 │  ├─ check-terminal.mjs             # 터미널 기능 확인 (14.3)
 │  ├─ check-canvas.mjs               # 캔버스·다중 노드 확인 (14.3)
@@ -157,6 +158,7 @@ session-canvas/
 │  │  ├─ transcript/parse.ts          # 16장 순수 함수, 단위 테스트 대상
 │  │  ├─ transcript/workLog.ts        # 16장 누적·증분 (R16)
 │  │  ├─ transcript/TranscriptStore.ts # 16장 파일 찾기·증분 읽기
+│  │  ├─ transcript/buildView.ts      # 16.2 의도(transcript) + 결과(git) 합치기
 │  │  ├─ git/GitService.ts           # 7.1 브랜치 표시
 │  │  ├─ resources.ts                # resources/ 실제 파일 경로 해석
 │  │  └─ ipc.ts
@@ -171,6 +173,8 @@ session-canvas/
 │     ├─ nodes/DetachedSession.tsx   # 5.4 "세션 없음"
 │     ├─ nodes/NodeLocation.tsx      # 7.1 경로 · 브랜치
 │     ├─ nodes/nodeRuntime.ts        # 18.3 노드 런타임 계약
+│     ├─ worklog/WorkLogPanel.tsx    # 19장 단계 8 고정 패널
+│     ├─ state/workLog.ts            # 19장 단계 8 노드별 기록 캐시
 │     ├─ canvas/OrphanSessions.tsx   # 5.4 "분리된 세션"
 │     ├─ nodes/statusPresentation.ts # 8.1 기호·문구·색
 │     ├─ settings/SettingsPanel.tsx  # 8.4 동의 UI
@@ -781,7 +785,17 @@ MVP가 푼 것은 "**어느** 에이전트가 날 기다리는가"였다. v2가 
 #### `last-prompt`는 턴마다 다시 기록된다
 같은 프롬프트가 연달아 온다(실측: 한 프롬프트가 288번). 그대로 쌓으면 타임라인이 같은 줄로 가득 찬다. **연속 중복은 하나로 본다.**
 
-#### ⚠️ 파일 경로를 계산하지 않는다
+#### 경로는 훅이 알려 준 것을 저장해 쓴다
+훅 payload의 **`transcript_path`**를 노드(`terminal.transcriptPath`)에 저장한다. 모든 이벤트에 들어 있다(두 에이전트 실측).
+
+**계산하거나 찾으면 안 되는 이유가 둘이다.**
+
+1. 두 에이전트의 경로 구조가 **전혀 다르다** (§21.4)
+2. Claude Code 쪽은 폴더가 세션 **시작 위치**로 정해져서 `cwd`로 계산하면 조용히 틀린다 (아래)
+
+찾기(`locate`)는 **훅 이벤트를 아직 못 받은 노드를 위한 대체 경로**이고 **Claude Code 구조만** 처리한다.
+
+#### ⚠️ 파일 경로를 계산하지 않는다 (대체 경로의 한계)
 경로는 `~/.claude/projects/<슬러그>/<session_id>.jsonl`이다. 슬러그는 `cwd`의 **비영숫자를 `-`로 바꾼 것**으로 보인다 — 실측 폴더 35개 중 **32개가 일치**했다.
 
 **그런데 그 규칙으로 찾으면 안 된다.** 폴더는 **세션이 시작된 위치**로 정해지고, 레코드의 `cwd`는 그 뒤 바뀔 수 있다. 어긋난 3건을 관측했다:
@@ -820,6 +834,17 @@ MVP가 푼 것은 "**어느** 에이전트가 날 기다리는가"였다. v2가 
 5. `file-history` 백업 (`~/.claude/backups/`) — `backupFileName`이 `null`인 경우가 관측됐다(R15)
 
 즉 **git으로 "무엇이 바뀌었는지" 빠짐없이 잡고, transcript로 "누가 왜 바꿨는지"를 붙인다.** 3번이 있으면 그것을 우선 보여 주고, 없으면 git diff로 대신한다.
+
+**단계 8의 범위**: 커밋되지 않은 변경만 본다(`git status`). 에이전트가 **지금 손대고 있는 것**이 작업 기록에서 알고 싶은 것이다. "마지막 확인 지점 이후"라는 더 정확한 기준은 커밋 기준점이 필요하므로 단계 9에서 17장과 함께 다룬다.
+
+⚠️ **git은 "누가 바꿨는지"를 모른다.** 노드 둘이 같은 저장소를 가리키면 두 노드에 같은 변경이 보인다. **숨기지 않고 겹친다고 알려 준다** — 도구 호출 시각으로 추정하는 방안은 버렸다(추정이고, 셸로 고치면 어차피 알 수 없다). 경고 UI는 단계 9다.
+
+#### 도구 요약은 `description`을 먼저 쓴다 (실측 2026-10-02)
+타임라인에 "무엇을 했나"를 한 줄로 보여 줄 때, 처음에는 `Bash`의 `command` 첫 줄을 썼다. 실제 데이터에서는 쓸모가 없었다 — heredoc이라 `python3 - <<'PY'`만 반복된다.
+
+세어 보니 **`Bash` 호출 3,500건 전부에 `description`이 있었다.** 사람이 쓴 한 줄 요약이라 훨씬 읽힌다. 그래서 우선순위는 `file_path` → **`description`** → `command` → `pattern`/`query`다.
+
+**도구 이름으로 분기하지 않는다.** 있는 필드부터 고른다 — 이름으로 분기하면 새 도구가 생길 때마다 깨진다. 모르는 도구는 요약을 비운다(억지로 JSON을 늘어놓지 않는다).
 
 ### 16.3 ⚠️ 비공식 포맷이다
 이 JSONL은 **문서화되지 않은 Claude Code 내부 포맷**이다. 버전이 바뀌면 깨질 수 있다.
@@ -1074,3 +1099,4 @@ A·B는 **격리 환경에서만** 검증했다. 실제로 확인하려면 사�
 | v0.2.7 | 2026-09-28 | §16.1에 **transcript 파일 찾는 방법** 추가. 슬러그 규칙(`[^A-Za-z0-9]` → `-`)은 35개 중 32개만 맞고, 폴더는 **세션 시작 위치**로 정해지므로 `cwd`로 계산하면 조용히 틀린다(어긋난 3건 실측, 두 건은 서로 뒤바뀜). **session id로 폴더 전체를 훑고**(0.7ms), 같은 id가 여럿이면 **가장 최근 수정본**을 쓴다(실측 1건). `main/transcript/TranscriptStore.ts` 추가 — 증분 읽기(바이트 오프셋, 마지막 줄바꿈까지만 소비), 파일이 줄면 재시작, `continued-in` 사슬 추적(최대 8단계, 고리 방지). 실측: 노드 5개 재읽기 합계 **5.2ms** |
 | v0.3.0 | 2026-09-29 | **방향 전환 — 범용화.** 21장 신설(에이전트 추상화). Codex 훅을 tmux 안 대화형으로 **실측**해 Claude Code와 공통 필드가 같음을 확인 → D6을 "에이전트 hooks"로 일반화하고 §2.2에서 "Codex 상태 감지" 비범위를 제거. 차이 셋을 기록: `background_tasks` 없음, `SessionStart`가 **첫 턴**에 발생, `Interrupt` 추가. ⚠️ Codex는 **사용자가 `/hooks`로 훅을 승인**해야 하고 신뢰가 **정의 해시**에 묶인다 → D7 개정, 설정 화면이 2단계를 안내해야 함. 실측 함정 기록(§21.3): 대화형에서 `-c`가 조용히 무시되며 `--no-daemon` 필요. Windows는 **WSL2 전제**로 비범위에서 제외(§21.5). 구현 단계 A·B·C 신설, v2 단계 8~11은 그 뒤로 미룸 |
 | v0.3.1 | 2026-09-29 | 단계 A·B 완료(에이전트 종류 추상화, Codex 훅 설치). §21.6 **순서 개정** — C(Windows)를 미루고 v2 단계 8~11을 먼저 한다. Windows를 나중에 하면 이식을 한 번만 하면 된다. §21.7 신설 — Codex는 격리 환경에서만 검증했고 실사용 확인 3건이 남았다 |
+| v0.3.2 | 2026-10-02 | **단계 8(작업 기록) 완료.** §16.1에 경로 규칙 추가 — 훅 payload의 `transcript_path`를 노드에 저장해 쓴다(두 에이전트의 경로 구조가 다르고, Claude Code 쪽은 `cwd`로 계산하면 틀린다). §16.2에 단계 8의 범위(커밋되지 않은 변경), 같은 저장소를 가리키는 노드 둘의 한계, **도구 요약은 `description`을 먼저 쓴다**는 실측(`Bash` 3,500건 전부에 있고 `command` 첫 줄은 heredoc이라 무용)을 추가. 작업 기록은 **고정 패널**이다(§15.2 기준) — 캔버스를 덮지 않고 밀어낸다. §4.2에 `transcript/buildView.ts`·`worklog/WorkLogPanel.tsx`·`state/workLog.ts`·`scripts/check-worklog.mjs` 추가 |

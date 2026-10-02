@@ -17,6 +17,8 @@ import type { PtyManager } from './pty/PtyManager'
 import type { TmuxService } from './tmux/TmuxService'
 import type { GitService } from './git/GitService'
 import type { HookInstaller } from './hooks/HookInstaller'
+import type { TranscriptStore } from './transcript/TranscriptStore'
+import { buildView } from './transcript/buildView'
 import type { Notifier } from './notify/Notifier'
 import type { StatusWatcher } from './status/StatusWatcher'
 import type { WorkspaceStore } from './workspace/WorkspaceStore'
@@ -73,6 +75,7 @@ export interface IpcDeps {
   store: WorkspaceStore
   status: StatusWatcher
   hooks: Record<AgentKind, HookInstaller>
+  transcript: TranscriptStore
   notifier: Notifier
   getWindow(): BrowserWindow | null
 }
@@ -84,6 +87,7 @@ export function registerIpcHandlers({
   store,
   status,
   hooks,
+  transcript,
   notifier,
   getWindow
 }: IpcDeps): void {
@@ -192,6 +196,33 @@ export function registerIpcHandlers({
     if (typeof cwd !== 'string' || !isAbsolute(cwd)) return null
     if (!statSync(cwd, { throwIfNoEntry: false })?.isDirectory()) return null
     return git.branch(cwd)
+  })
+
+  /**
+   * 노드의 작업 기록 (SPEC 16 / 19 단계 8).
+   *
+   * renderer가 노드 값을 실어 보낸다 — main의 `WorkspaceStore`는 지연 저장이라
+   * 최신이 아닐 수 있다. 보낸 값은 전부 검증한다 (SPEC 11).
+   */
+  ipcMain.handle(CHANNELS.workLogGet, async (_event, raw: unknown) => {
+    if (typeof raw !== 'object' || raw === null) return null
+    const req = raw as Record<string, unknown>
+    if (typeof req.nodeId !== 'string' || !NODE_ID_PATTERN.test(req.nodeId)) return null
+    if (typeof req.cwd !== 'string' || !isAbsolute(req.cwd)) return null
+    const sessionId =
+      typeof req.agentSessionId === 'string' && req.agentSessionId.length > 0
+        ? req.agentSessionId
+        : null
+    // 경로는 **절대경로만** 받는다. renderer가 보낸 값으로 파일을 읽기 때문이다.
+    const transcriptPath =
+      typeof req.transcriptPath === 'string' && isAbsolute(req.transcriptPath)
+        ? req.transcriptPath
+        : null
+
+    // git은 세션 id가 없어도 볼 수 있다. 둘을 따로 구한다.
+    const changes = await git.changes(req.cwd)
+    const log = sessionId === null ? null : await transcript.read(sessionId, transcriptPath)
+    return buildView(log, changes)
   })
 
   ipcMain.handle(CHANNELS.dialogPickDirectory, async () => {

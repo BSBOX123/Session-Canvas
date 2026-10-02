@@ -127,6 +127,33 @@ describe('TranscriptStore.read — 증분 (R16)', () => {
   })
 })
 
+// SPEC 16.1 — 훅이 알려 준 경로를 쓴다. 두 에이전트의 경로 구조가 다르기 때문이다.
+describe('TranscriptStore.read — 알려진 경로 우선', () => {
+  it('훅이 준 경로를 쓰면 찾기를 건너뛴다', async () => {
+    // Codex 구조를 흉내 낸다. `locate()`는 이 구조를 못 찾는다.
+    const dir = join(projects, '..', 'codex-sessions', '2026', '10', '02')
+    await mkdir(dir, { recursive: true })
+    const path = join(dir, 'rollout-2026-10-02T00-00-00-sess-codex.jsonl')
+    await writeFile(path, prompt('코덱스 작업'), 'utf8')
+
+    // 찾기로는 못 찾는다.
+    expect(await store.locate('sess-codex')).toBeNull()
+    // 경로를 주면 읽힌다.
+    const log = await store.read('sess-codex', path)
+    expect(log?.recentPrompts[0]?.text).toBe('코덱스 작업')
+  })
+
+  it('경로를 주지 않으면 찾기로 떨어진다 (Claude Code 구조)', async () => {
+    await writeSession('-Users-me-dev-x', 'sess-claude', prompt('클로드 작업'))
+    const log = await store.read('sess-claude')
+    expect(log?.recentPrompts[0]?.text).toBe('클로드 작업')
+  })
+
+  it('준 경로가 없는 파일이면 null — 던지지 않는다', async () => {
+    expect(await store.read('sess-x', join(projects, '없는파일.jsonl'))).toBeNull()
+  })
+})
+
 // SPEC 16.1 — 압축되면 새 id로 이어진다. 따라가지 않으면 최근 작업이 통째로 빠진다.
 describe('TranscriptStore.read — continued-in 사슬', () => {
   const chain = (to: string): string =>

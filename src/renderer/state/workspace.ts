@@ -104,7 +104,8 @@ function makeNode(
       command: input.command,
       tmuxSession: `sc-${id}`,
       agent: input.agent ?? agentFromCommand(input.command),
-      agentSessionId: null
+      agentSessionId: null,
+      transcriptPath: null
     }
   }
 }
@@ -223,15 +224,24 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
         statuses: { ...state.statuses, [change.nodeId]: status }
       }
 
-      // SessionStart가 준 세션 id는 저장한다 — [이전 대화 이어서]에 쓴다 (SPEC 5.4).
+      // 페이로드가 준 것들을 노드에 저장한다. 세션 id는 [이전 대화 이어서]에
+      // 쓰고(SPEC 5.4), transcript 경로는 작업 기록을 읽는 데 쓴다(SPEC 16.1).
+      const patch: Partial<TerminalPayload> = {}
       if (
         change.agentSessionId !== null &&
         node.terminal.agentSessionId !== change.agentSessionId
       ) {
+        patch.agentSessionId = change.agentSessionId
+      }
+      if (
+        change.transcriptPath !== null &&
+        node.terminal.transcriptPath !== change.transcriptPath
+      ) {
+        patch.transcriptPath = change.transcriptPath
+      }
+      if (Object.keys(patch).length > 0) {
         next.nodes = state.nodes.map((n) =>
-          n.id === change.nodeId
-            ? { ...n, terminal: { ...n.terminal, agentSessionId: change.agentSessionId } }
-            : n
+          n.id === change.nodeId ? { ...n, terminal: { ...n.terminal, ...patch } } : n
         )
       }
       return next

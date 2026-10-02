@@ -93,6 +93,11 @@ function normalizeNode(raw: unknown): CanvasNode | null {
       tmuxSession: str(payload.tmuxSession, `sc-${id}`),
       // v3에서 생긴 필드. v1·v2 파일은 명령에서 추측한다 (SPEC 21.4).
       agent: isAgentKind(payload.agent) ? payload.agent : agentFromCommand(command),
+      // 훅 이벤트를 받으면 채워진다. 없으면 null — 버전을 올리지 않아도 된다.
+      transcriptPath:
+        typeof payload.transcriptPath === 'string' && payload.transcriptPath.length > 0
+          ? payload.transcriptPath
+          : null,
       // v2까지 이름이 `claudeSessionId`였다. 두 이름을 다 읽는다 (SPEC 21.4).
       agentSessionId:
         typeof payload.agentSessionId === 'string'

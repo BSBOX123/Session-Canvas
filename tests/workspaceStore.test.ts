@@ -27,7 +27,8 @@ function node(id: string): TerminalNodeData {
       command: 'claude',
       tmuxSession: `sc-${id}`,
       agent: 'claude',
-      agentSessionId: null
+      agentSessionId: null,
+      transcriptPath: null
     }
   }
 }
@@ -153,6 +154,7 @@ describe('serialize (SPEC 9.2)', () => {
       tmuxSession: 'sc-oldNode123',
       // v1·v2에 없던 필드. 명령에서 추측한다 (SPEC 21.4).
       agent: 'claude',
+      transcriptPath: null,
       agentSessionId: 'sess-old'
     })
     // v1에 없던 필드는 기본값

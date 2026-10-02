@@ -29,7 +29,8 @@
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "postinstall": "electron-builder install-app-deps",
-    "app:update": "node scripts/update-app.mjs"
+    "app:update": "node scripts/update-app.mjs",
+    "verify:worklog": "node scripts/check-worklog.mjs"
   },
   "dependencies": {
     "@electron-toolkit/utils": "^4.0.0",

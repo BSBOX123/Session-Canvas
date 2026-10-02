@@ -1,5 +1,13 @@
 /**
- * transcript 파일을 찾아 **증분으로** 읽는다 (SPEC 16, R16).
+ * transcript 파일을 **증분으로** 읽는다 (SPEC 16, R16).
+ *
+ * **경로는 훅이 알려 준 것을 쓴다** (`node.terminal.transcriptPath`, SPEC 16.1).
+ * Claude Code와 Codex의 경로 구조가 전혀 다르기 때문이다:
+ *   Claude Code — `~/.claude/projects/<슬러그>/<id>.jsonl`
+ *   Codex       — `~/.codex/sessions/<Y>/<M>/<D>/rollout-<시각>-<id>.jsonl`
+ *
+ * `locate()`는 **훅 이벤트를 아직 못 받은 노드를 위한 대체 경로**이고
+ * **Claude Code 구조만** 처리한다. 아래 설명은 그 대체 경로에 대한 것이다.
  *
  * 경로 규칙을 계산하지 않는다. `~/.claude/projects/<슬러그>/<session_id>.jsonl`의
  * 슬러그는 `cwd`의 비영숫자를 `-`로 바꾼 것으로 **보이지만**(실측 35개 중 32개 일치),
@@ -68,26 +76,34 @@ export class TranscriptStore {
    * `continued-in`을 따라가 이어진 세션까지 한 기록으로 합친다 — 압축되면 새 id로
    * 넘어가므로, 따라가지 않으면 최근 작업이 통째로 빠진다.
    */
-  async read(sessionId: string): Promise<WorkLog | null> {
+  async read(sessionId: string, knownPath?: string | null): Promise<WorkLog | null> {
     let log: WorkLog | null = null
     let current: string | undefined = sessionId
     const visited = new Set<string>()
+    // 첫 세션은 훅이 알려 준 경로를 쓴다. 사슬로 넘어간 세션은 찾아야 한다.
+    let path = knownPath ?? undefined
 
     for (let depth = 0; depth < MAX_CHAIN && current !== undefined; depth += 1) {
       if (visited.has(current)) break
       visited.add(current)
 
-      const one = await this.readOne(current)
+      const one = await this.readOne(current, path)
       if (one !== null) log = log === null ? one : mergeChain(log, one)
       // 이어진 곳은 방금 읽은 세션이 알려 준다.
       current = one?.continuedIn.find((id) => !visited.has(id))
+      path = undefined
     }
     return log
   }
 
-  /** 세션 하나만 증분으로 읽는다. */
-  private async readOne(sessionId: string): Promise<WorkLog | null> {
-    const path = await this.locate(sessionId)
+  /**
+   * 세션 하나만 증분으로 읽는다.
+   *
+   * `knownPath`가 있으면 그것을 쓴다 — 훅이 알려 준 경로다. 없으면 찾는다
+   * (Claude Code 구조만).
+   */
+  private async readOne(sessionId: string, knownPath?: string): Promise<WorkLog | null> {
+    const path = knownPath ?? (await this.locate(sessionId))
     if (path === null) {
       this.cursors.delete(sessionId)
       return null

@@ -11,6 +11,7 @@ import { TMUX_SOCKET, type TmuxContext } from './tmux/buildArgs'
 import { WorkspaceStore } from './workspace/WorkspaceStore'
 import { HookInstaller } from './hooks/HookInstaller'
 import { CLAUDE_HOOK_EVENTS, CODEX_HOOK_EVENTS } from './hooks/mergeSettings'
+import { TranscriptStore } from './transcript/TranscriptStore'
 import type { AgentKind } from '../shared/types'
 import { StatusWatcher } from './status/StatusWatcher'
 import { Notifier } from './notify/Notifier'
@@ -112,6 +113,9 @@ app.whenReady().then(async () => {
       needsApproval: true
     })
   }
+  // 작업 기록 읽기 (SPEC 16). 경로는 훅이 알려 준 것을 쓰고, 이 디렉터리는
+  // 훅 이벤트를 아직 못 받은 노드를 위한 대체 찾기용이다 (Claude Code 구조).
+  const transcriptStore = new TranscriptStore(join(home, '.claude', 'projects'))
   const notifier = new Notifier(
     () => mainWindow,
     (nodeId) => forward(CHANNELS.appNotificationClick, nodeId)
@@ -129,6 +133,7 @@ app.whenReady().then(async () => {
     store: workspaceStore,
     status: statusWatcher,
     hooks: hookInstallers,
+    transcript: transcriptStore,
     notifier,
     getWindow: () => mainWindow
   })
